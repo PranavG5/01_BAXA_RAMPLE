@@ -32,11 +32,6 @@ function parseMusic(): MusicTrack[] {
 
 export const env = {
   supabaseUrl: () => required("NEXT_PUBLIC_SUPABASE_URL", read("NEXT_PUBLIC_SUPABASE_URL")),
-  supabaseAnonKey: () =>
-    required(
-      "NEXT_PUBLIC_SUPABASE_ANON_KEY",
-      read("NEXT_PUBLIC_SUPABASE_ANON_KEY") ?? read("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY"),
-    ),
   supabaseServiceKey: () =>
     required("SUPABASE_SERVICE_ROLE_KEY", read("SUPABASE_SERVICE_ROLE_KEY") ?? read("SUPABASE_SECRET_KEY")),
 
@@ -69,11 +64,6 @@ export const env = {
   mediaMode: () => (read("MEDIA_MODE") === "mock" ? "mock" : "live"),
   appUrl: () => (read("APP_URL") ?? (read("VERCEL_PROJECT_PRODUCTION_URL") ? `https://${read("VERCEL_PROJECT_PRODUCTION_URL")}` : undefined))?.replace(/\/$/, ""),
   cronSecret: () => read("CRON_SECRET"),
-  staffEmails: () =>
-    (read("STAFF_EMAILS") ?? "")
-      .split(",")
-      .map((e) => e.trim().toLowerCase())
-      .filter(Boolean),
   musicTracks: parseMusic,
   defaultCreditCap: () => Number(read("DEFAULT_CREDIT_CAP") ?? 300),
 };

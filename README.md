@@ -2,7 +2,7 @@
 
 The MVP video pipeline from **PRD: Rample.ai Video Marketing Pipeline (v2)**. A salon or barbershop owner types one line ("$25 Tuesday Fade special"), reviews a storyboard built from photos of their own shop, approves it, and gets a QA-checked 9:16 video for Instagram Reels and TikTok.
 
-Next.js 16 on Vercel, Supabase (Postgres, Auth, private Storage), Claude for every reasoning step, Higgsfield and Pika for image-to-video, Shotstack for assembly, ElevenLabs for voiceover.
+Next.js 16 on Vercel, Supabase (Postgres, private Storage), Claude for every reasoning step, Higgsfield and Pika for image-to-video, Shotstack for assembly, ElevenLabs for voiceover.
 
 ```
 Photo library ─► Improve prompt ─► Draft storyboard ─► Route models ─► Owner approves? ──no──► revise (new version)
@@ -42,16 +42,19 @@ Automatic Mode (FR-31, P2) is a placeholder page in the Marketing tab, as the PR
 ### 1. Supabase
 
 1. Create a project at supabase.com.
-2. In **SQL Editor**, run `supabase/migrations/0001_init.sql`, then `supabase/migrations/0002_seed_registry.sql`. (Or `supabase db push` with the CLI.) This creates the tables, the approval-gate trigger, the credit-cap function and two private storage buckets (`assets`, `media`).
-3. **Authentication > Providers**: Email is enabled by default. For quick testing you can turn off "Confirm email".
-4. **Authentication > URL Configuration**: set Site URL to your Vercel URL and add `https://YOUR-APP/auth/callback` to redirect URLs.
-5. Copy the project URL, anon key and service role key from **Project Settings > API**.
+2. In **SQL Editor**, run `supabase/migrations/0001_init.sql`, `0002_seed_registry.sql` and `0003_single_admin.sql`, in that order. (Or `supabase db push` with the CLI.) This creates the tables, the approval-gate trigger, the credit-cap function and two private storage buckets (`assets`, `media`).
+3. Copy the project URL and service role key from **Project Settings > API**. Supabase Auth is not used.
 
 ### 2. Vercel
 
 1. Import this repository in Vercel (framework preset: Next.js).
-2. Add every variable from `.env.example` under **Settings > Environment Variables**. At minimum: the three Supabase values, `ANTHROPIC_API_KEY`, `HIGGSFIELD_*` and/or `PIKA_API_KEY`, `SHOTSTACK_API_KEY`, `ELEVENLABS_API_KEY`, `STAFF_EMAILS`, `CRON_SECRET`.
-3. Deploy. Sign up in the app with an email listed in `STAFF_EMAILS` to see the Review, Registry and Metrics pages.
+2. Add every variable from `.env.example` under **Settings > Environment Variables**. At minimum: the two Supabase values, `ANTHROPIC_API_KEY`, `HIGGSFIELD_*` and/or `PIKA_API_KEY`, `SHOTSTACK_API_KEY`, `ELEVENLABS_API_KEY`, `CRON_SECRET`.
+3. Deploy and sign in with the single admin account:
+
+   - Email: `test@rample.ai`
+   - Password: `baxatest`
+
+   This account owns the business and also sees the Review, Registry and Metrics pages. There is no sign-up. The credentials are hardcoded in `src/lib/server/auth.ts`.
 
 The included `vercel.json` cron runs a daily safety sweep (Hobby plans allow daily crons). The pipeline is mainly driven by the project page polling every 4 seconds and by provider/Shotstack webhooks, so it does not depend on the cron. On a Pro plan you can change the schedule to `* * * * *`.
 
