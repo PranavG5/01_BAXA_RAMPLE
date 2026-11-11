@@ -1,8 +1,8 @@
 -- Verifies the database-level approval gate and credit cap.
--- Run against a database with the migrations applied:
+-- Run with: node tests/db_gates.mjs  (embedded Postgres, no setup)
+-- or against any Postgres with the migrations applied:
 --   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/db_gates.sql
 begin;
-insert into auth.users(id) values ('00000000-0000-0000-0000-000000000001');
 insert into business_profiles(id, owner_id, name) values ('00000000-0000-0000-0000-0000000000b1', '00000000-0000-0000-0000-000000000001', 'Test Barbers');
 insert into assets(id, business_id, storage_path, consent_confirmed) values ('00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-0000000000b1', 'x.jpg', true);
 insert into projects(id, business_id, original_prompt, credit_cap) values ('00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-0000000000b1', '$25 Tuesday Fade special', 30);

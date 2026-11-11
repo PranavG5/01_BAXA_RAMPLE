@@ -3,7 +3,7 @@ import { requireApiUser } from "@/lib/server/auth";
 import { api, conflict } from "@/lib/server/http";
 import { loadProject } from "@/lib/server/pipeline/projects";
 import { removeObjects } from "@/lib/server/storage";
-import { db, must } from "@/lib/server/supabase";
+import { db, must } from "@/lib/server/db";
 
 export const DELETE = api(async (_req: Request, { params }: { params: Promise<{ id: string }> }) => {
   const { business } = await requireApiUser();

@@ -1,4 +1,4 @@
-// Row shapes for the tables in supabase/migrations/0001_init.sql.
+// Row shapes for the tables in db/migrations/0001_init.sql.
 import type { Brief } from "./core/schemas";
 import type { RegistryModel } from "./core/routing-rules";
 

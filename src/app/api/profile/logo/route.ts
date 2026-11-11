@@ -3,7 +3,7 @@ import { requireApiUser } from "@/lib/server/auth";
 import { api, badRequest } from "@/lib/server/http";
 import { normalizeLogo } from "@/lib/server/media/image";
 import { putObject } from "@/lib/server/storage";
-import { db, must } from "@/lib/server/supabase";
+import { db, must } from "@/lib/server/db";
 
 export const POST = api(async (req: Request) => {
   const { business } = await requireApiUser();

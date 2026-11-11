@@ -1,6 +1,6 @@
 import "server-only";
 import type { RegistryModel } from "../../core/routing-rules";
-import { db, must } from "../supabase";
+import { db, must } from "../db";
 
 function toModel(row: Record<string, unknown>): RegistryModel {
   return {

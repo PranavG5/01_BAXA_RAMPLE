@@ -11,7 +11,7 @@ import { routeScenes } from "../ai/router";
 import { draftStoryboard as aiDraft, reviseStoryboard as aiRevise } from "../ai/storyboard";
 import { audit } from "../audit";
 import { badRequest, conflict, HttpError, notFound } from "../http";
-import { db, must } from "../supabase";
+import { db, must } from "../db";
 import { listAssets } from "./assets";
 import { loadPins, loadRegistry } from "./registry";
 

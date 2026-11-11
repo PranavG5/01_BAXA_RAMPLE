@@ -2,7 +2,7 @@
 
 The MVP video pipeline from **PRD: Rample.ai Video Marketing Pipeline (v2)**. A salon or barbershop owner types one line ("$25 Tuesday Fade special"), reviews a storyboard built from photos of their own shop, approves it, and gets a QA-checked 9:16 video for Instagram Reels and TikTok.
 
-Next.js 16 on Vercel, Supabase (Postgres, private Storage), Claude for every reasoning step, Higgsfield and Pika for image-to-video, Shotstack for assembly, ElevenLabs for voiceover.
+Next.js 16, a local embedded Postgres (PGlite) with local file storage, Claude for every reasoning step, Higgsfield and Pika for image-to-video, Shotstack for assembly, ElevenLabs for voiceover.
 
 ```
 Photo library ─► Improve prompt ─► Draft storyboard ─► Route models ─► Owner approves? ──no──► revise (new version)
@@ -25,7 +25,7 @@ Dashboard ◄─yes─ Final QA ◄─ Assembly (Shotstack) ◄─ Scene QA ◄�
 | Versioned edits by chat or inline; only changed scenes are re-routed and re-rendered | `src/lib/server/pipeline/projects.ts` (`renderKey`) |
 | Free preview with photos and text overlays (no credits) | `src/components/workspace/PreviewPlayer.tsx` |
 | Model registry, Claude router, server-side pick validation, pins, kill switch, staleness flags | `src/lib/server/ai/router.ts`, `src/lib/core/routing-rules.ts`, `src/app/(app)/ops/registry` |
-| Approval gate and credit cap, enforced **in Postgres** (trigger + `claim_render_job`) | `supabase/migrations/0001_init.sql` |
+| Approval gate and credit cap, enforced **in Postgres** (trigger + `claim_render_job`) | `db/migrations/0001_init.sql` |
 | Provider adapter (submit, poll/webhook, cancel, cost) for Higgsfield and Pika | `src/lib/server/providers/*` |
 | Render queue with idempotency keys, retries, fallback model, per-project lock | `src/lib/server/pipeline/render.ts` |
 | Scene QA: sampled frames scored by Claude + pixel fidelity vs. source photo; final QA: duration, 1080x1920, audio level | `src/lib/server/ai/qa.ts`, `src/lib/core/pipeline-rules.ts` |
@@ -39,16 +39,16 @@ Automatic Mode (FR-31, P2) is a placeholder page in the Marketing tab, as the PR
 
 ## Setup
 
-### 1. Supabase
+### 1. Storage (local for now)
 
-1. Create a project at supabase.com.
-2. In **SQL Editor**, run `supabase/migrations/0001_init.sql`, `0002_seed_registry.sql` and `0003_single_admin.sql`, in that order. (Or `supabase db push` with the CLI.) This creates the tables, the approval-gate trigger, the credit-cap function and two private storage buckets (`assets`, `media`).
-3. Copy the project URL and service role key from **Project Settings > API**. Supabase Auth is not used.
+No database service is needed. On first use the app creates an embedded Postgres (PGlite) and a file store in `DATA_DIR` (default `./.data`) and runs `db/migrations/*.sql` automatically. The same SQL runs on any Postgres 13+ when you move to a hosted database later.
+
+On Vercel only `/tmp` is writable, so data there is temporary: it lives on one server instance and is wiped when that instance shuts down. Fine for a quick look; use your own machine for real testing until a hosted database is added.
 
 ### 2. Vercel
 
 1. Import this repository in Vercel (framework preset: Next.js).
-2. Add every variable from `.env.example` under **Settings > Environment Variables**. At minimum: the two Supabase values, `ANTHROPIC_API_KEY`, `HIGGSFIELD_*` and/or `PIKA_API_KEY`, `SHOTSTACK_API_KEY`, `ELEVENLABS_API_KEY`, `CRON_SECRET`.
+2. Add every variable from `.env.example` under **Settings > Environment Variables**. At minimum: `ANTHROPIC_API_KEY`, `HIGGSFIELD_*` and/or `PIKA_API_KEY`, `SHOTSTACK_API_KEY`, `ELEVENLABS_API_KEY`, `CRON_SECRET`.
 3. Deploy and sign in with the single admin account:
 
    - Email: `test@rample.ai`
@@ -82,11 +82,7 @@ npm test
 
 Unit tests for the storyboard rules, router constraints, retry policy, QA verdicts, fact guard, library minimum and the Shotstack timeline.
 
-```bash
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/db_gates.sql
-```
-
-Database tests for the approval gate, the credit cap, frozen approved versions and the project lock (runs in a transaction and rolls back).
+`npm test` also runs `tests/db_gates.mjs`: database tests for the approval gate, the credit cap, frozen approved versions and the project lock, on a throwaway embedded Postgres.
 
 ## How the hard gates work
 
@@ -114,6 +110,7 @@ These are the defaults this build uses. Each is a small change if the team decid
 | Provider connection: MCP or direct API? | Direct REST APIs from the server, behind one adapter interface. Claude only gets read-only registry data. |
 | Start-image support | Only `start_image_support = true` models are routable. Every start image is the owner's photo cropped to 1080x1920. |
 | Voiceover and music | ElevenLabs per scene; music from licensed URLs you configure (`MUSIC_URL` or `MUSIC_TRACKS`). |
+| Storage | Local embedded Postgres and files for now; the schema is plain Postgres so it can move to a hosted database later. |
 | Cost ownership / target cost | Per-video credit cap (default 300 credits = $3), editable per business and per project. |
 | Failed renders | Credits for failed jobs count against the cap; failures retry up to 3 attempts, the last on the fallback model, then go to human review. |
 | Model visibility | Owners see "AI-animated" / "Photo motion" badges; the model name and router reason are behind a "why" link. |

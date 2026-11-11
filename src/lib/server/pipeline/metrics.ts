@@ -1,5 +1,5 @@
 import "server-only";
-import { db, must } from "../supabase";
+import { db, must } from "../db";
 import { USD_PER_CREDIT } from "../../core/vocabulary";
 
 export interface Metric {

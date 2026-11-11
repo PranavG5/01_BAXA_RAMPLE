@@ -18,7 +18,7 @@ import { synthesizeVoiceover } from "../media/voice";
 import { adapterFor } from "../providers";
 import { ProviderError } from "../providers/types";
 import { getObject, putObject, signedUrl, signedUrls } from "../storage";
-import { db, must } from "../supabase";
+import { db, must } from "../db";
 import { loadScenes, loadVersion } from "./projects";
 import { loadRegistry } from "./registry";
 
@@ -113,11 +113,12 @@ async function ensureSceneJobs(project: Pick<Project, "id">, version: Storyboard
   const pending = scenes.filter((s) => s.treatment === "animate" && s.render_status === "pending" && !withJobs.has(s.id));
   if (!pending.length) return { jobs: 0, reused: 0 };
   const byId = new Map(registry.models.map((m) => [m.model_id, m]));
+  const versionIds = (must(await db().from("storyboard_versions").select("id").eq("project_id", project.id), "project versions") as { id: string }[]).map((v) => v.id);
   const previous = must(
     await db()
       .from("scenes")
-      .select("id, render_key, clip_path, render_status, storyboard_version_id, storyboard_versions!inner(project_id)")
-      .eq("storyboard_versions.project_id", project.id)
+      .select("id, render_key, clip_path")
+      .in("storyboard_version_id", versionIds)
       .eq("render_status", "passed")
       .not("clip_path", "is", null),
     "load reusable clips",
@@ -177,7 +178,7 @@ async function submitJob(job: RenderJob, scene: Scene, models: Map<string, Regis
     await handleJobFailure({ ...job, status: "failed" }, scene, "provider");
     return;
   }
-  const imageUrl = await signedUrl("assets", asset.vertical_path, 6 * 3600);
+  const imageUrl = await signedUrl("assets", asset.vertical_path, 6 * 3600, undefined, env.mediaMode() !== "mock");
   const basePrompt = job.model_id === scene.model_id && scene.model_prompt ? scene.model_prompt : scene.motion_prompt;
   const appUrl = env.appUrl();
   const webhookUrl = appUrl?.startsWith("https://") ? `${appUrl}/api/webhooks/${model.provider}` : null;
@@ -436,8 +437,9 @@ async function assemble(project: Project, version: StoryboardVersion, scenes: Sc
   ) as { id: string; vertical_path: string }[];
   const assetPath = new Map(assets.map((a) => [a.id, a.vertical_path]));
   const ttl = 12 * 3600;
-  const mediaUrls = await signedUrls("media", [...scenes.map((s) => s.clip_path ?? ""), ...[...voice.values()].map((v) => v.path)], ttl);
-  const assetUrls = await signedUrls("assets", [...assetPath.values(), business.logo_path ?? ""], ttl);
+  const live = env.mediaMode() !== "mock";
+  const mediaUrls = await signedUrls("media", [...scenes.map((s) => s.clip_path ?? ""), ...[...voice.values()].map((v) => v.path)], ttl, live);
+  const assetUrls = await signedUrls("assets", [...assetPath.values(), business.logo_path ?? ""], ttl, live);
 
   await setVersionState(version, "qa");
 

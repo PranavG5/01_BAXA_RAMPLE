@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireApiStaff } from "@/lib/server/auth";
 import { api, badRequest, readJson } from "@/lib/server/http";
-import { db, must } from "@/lib/server/supabase";
+import { db, must } from "@/lib/server/db";
 
 /** FR-17: re-evaluation window. */
 export const PUT = api(async (req: Request) => {

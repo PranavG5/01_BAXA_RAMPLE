@@ -4,7 +4,7 @@ import type { Asset, BusinessProfile } from "../../types";
 import { tagPhoto } from "../ai/tagging";
 import { processPhoto } from "../media/image";
 import { getObject, putObject, removeObjects } from "../storage";
-import { db, must } from "../supabase";
+import { db, must } from "../db";
 import { HttpError } from "../http";
 
 const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;

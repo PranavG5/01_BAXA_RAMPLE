@@ -2,8 +2,9 @@ import "server-only";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { db, must } from "./supabase";
+import { db, must } from "./db";
 import { env } from "./env";
+import { serverSecret } from "./paths";
 import { HttpError } from "./http";
 import type { BusinessProfile } from "../types";
 
@@ -26,14 +27,7 @@ export const SESSION_COOKIE = "rample_session";
 const SESSION_DAYS = 30;
 
 function sessionKey(): string {
-  // Login must work even before the database keys are configured, so this never throws.
-  const base =
-    process.env.SESSION_SECRET ||
-    process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    process.env.SUPABASE_SECRET_KEY ||
-    process.env.CRON_SECRET ||
-    "rample-single-admin-session-v1";
-  return createHmac("sha256", base).update("rample-session").digest("hex");
+  return serverSecret();
 }
 
 function sign(payload: string): string {

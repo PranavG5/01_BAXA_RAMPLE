@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { requireApiUser } from "@/lib/server/auth";
 import { api, notFound } from "@/lib/server/http";
 import { tagAsset } from "@/lib/server/pipeline/assets";
-import { db } from "@/lib/server/supabase";
+import { db } from "@/lib/server/db";
 
 export const maxDuration = 120;
 

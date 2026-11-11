@@ -1,15 +1,13 @@
 -- Rample.ai Video Marketing Pipeline (PRD v2) - initial schema.
--- All tables have RLS enabled with no policies: only the server (service role)
--- reads and writes them. The browser never talks to these tables directly.
-
-create extension if not exists pgcrypto;
+-- Runs on the embedded Postgres (PGlite) at startup, and on any Postgres 13+.
+-- Only the server reads and writes these tables.
 
 -- ---------------------------------------------------------------------------
 -- Business profile (FR-4) and photo library (FR-1..3)
 -- ---------------------------------------------------------------------------
 create table if not exists business_profiles (
   id uuid primary key default gen_random_uuid(),
-  owner_id uuid not null unique references auth.users(id) on delete cascade,
+  owner_id uuid not null unique,
   name text not null default '',
   business_type text not null default 'barbershop' check (business_type in ('barbershop', 'salon')),
   services jsonb not null default '[]'::jsonb,        -- [{name, price, notes}]
@@ -420,31 +418,3 @@ end $$;
 create or replace function unlock_project(p_project_id uuid) returns void language sql as $$
   update projects set tick_lock_until = 'epoch' where id = p_project_id;
 $$;
-
--- ---------------------------------------------------------------------------
--- Row level security: on everywhere, no policies (service role only).
--- ---------------------------------------------------------------------------
-alter table business_profiles enable row level security;
-alter table assets enable row level security;
-alter table registry_meta enable row level security;
-alter table model_registry enable row level security;
-alter table model_pins enable row level security;
-alter table projects enable row level security;
-alter table storyboard_versions enable row level security;
-alter table scenes enable row level security;
-alter table router_decisions enable row level security;
-alter table render_jobs enable row level security;
-alter table qa_results enable row level security;
-alter table final_videos enable row level security;
-alter table audit_events enable row level security;
-
-revoke execute on function claim_render_job(uuid) from public, anon, authenticated;
-revoke execute on function try_lock_project(uuid, integer) from public, anon, authenticated;
-revoke execute on function unlock_project(uuid) from public, anon, authenticated;
-
--- ---------------------------------------------------------------------------
--- Private storage buckets. Files are served through short-lived signed URLs.
--- ---------------------------------------------------------------------------
-insert into storage.buckets (id, name, public)
-values ('assets', 'assets', false), ('media', 'media', false)
-on conflict (id) do nothing;

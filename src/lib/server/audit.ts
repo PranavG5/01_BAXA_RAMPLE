@@ -1,5 +1,5 @@
 import "server-only";
-import { db } from "./supabase";
+import { db } from "./db";
 
 /** Append-only audit trail (NFR auditability). Never throws. */
 export async function audit(projectId: string | null, actor: string, type: string, data: Record<string, unknown> = {}) {

@@ -1,7 +1,7 @@
 import { requirePageStaff } from "@/lib/server/auth";
 import { loadRegistry } from "@/lib/server/pipeline/registry";
 import { signedUrls } from "@/lib/server/storage";
-import { db, must } from "@/lib/server/supabase";
+import { db, must } from "@/lib/server/db";
 import { hardCandidates } from "@/lib/core/routing-rules";
 import { labelFor } from "@/lib/core/vocabulary";
 import type { QaResult } from "@/lib/types";
@@ -17,24 +17,67 @@ type QaRow = QaResult & {
   final_videos: { file_path: string | null; poster_path: string | null; projects: { title: string; id: string } } | null;
 };
 
+type DecRow = { id: string; scene_id: string; model_id: string | null; reason: string; confidence: string; flag_reason: string | null; registry_version: number };
+
+async function byIds(table: string, ids: string[]): Promise<Map<string, Record<string, unknown>>> {
+  const unique = [...new Set(ids.filter(Boolean))];
+  if (!unique.length) return new Map();
+  const rows = must(await db().from(table).select("*").in("id", unique), `load ${table}`) as Record<string, unknown>[];
+  return new Map(rows.map((r) => [r.id as string, r]));
+}
+
 export default async function ReviewPage() {
   await requirePageStaff();
-  const [qaRes, flaggedRes, recentRes, registry] = await Promise.all([
-    db()
-      .from("qa_results")
-      .select("*, scenes(id, scene_order, duration_s, shot_type, motion_prompt, model_id, assets(vertical_path), storyboard_versions(projects!storyboard_versions_project_id_fkey(title, id))), render_jobs(model_id, attempt, clip_path, error), final_videos(file_path, poster_path, projects(title, id))")
-      .eq("needs_review", true)
-      .is("decision", null)
-      .order("created_at")
-      .limit(30),
-    db().from("router_decisions").select("*, scenes(scene_order, shot_type, motion_prompt, duration_s)").eq("flagged", true).is("grade", null).order("created_at", { ascending: false }).limit(20),
-    db().from("router_decisions").select("*, scenes(scene_order, shot_type, motion_prompt, duration_s)").eq("flagged", false).eq("source", "claude").is("grade", null).order("created_at", { ascending: false }).limit(20),
+  const [qaRows, flaggedRows, recentRows, registry] = await Promise.all([
+    db().from("qa_results").select("*").eq("needs_review", true).is("decision", null).order("created_at").limit(30).then((r) => must(r, "review queue") as QaResult[]),
+    db().from("router_decisions").select("*").eq("flagged", true).is("grade", null).order("created_at", { ascending: false }).limit(20).then((r) => must(r, "flags") as DecRow[]),
+    db().from("router_decisions").select("*").eq("flagged", false).eq("source", "claude").is("grade", null).order("created_at", { ascending: false }).limit(20).then((r) => must(r, "recent") as DecRow[]),
     loadRegistry(),
   ]);
-  const items = must(qaRes, "review queue") as unknown as QaRow[];
-  type Dec = { id: string; model_id: string | null; reason: string; confidence: string; flag_reason: string | null; registry_version: number; scenes: { scene_order: number; shot_type: string; motion_prompt: string; duration_s: number } | null };
-  const flagged = must(flaggedRes, "flags") as unknown as Dec[];
-  const recent = must(recentRes, "recent") as unknown as Dec[];
+
+  // Join related rows in code (the local database has no embedded selects).
+  const sceneIds = [...qaRows.map((q) => q.scene_id), ...flaggedRows.map((d) => d.scene_id), ...recentRows.map((d) => d.scene_id)].filter(Boolean) as string[];
+  const scenes = await byIds("scenes", sceneIds);
+  const [assets, versions, jobs, finals] = await Promise.all([
+    byIds("assets", [...scenes.values()].map((s) => s.background_asset_id as string)),
+    byIds("storyboard_versions", [...scenes.values()].map((s) => s.storyboard_version_id as string)),
+    byIds("render_jobs", qaRows.map((q) => q.render_job_id ?? "")),
+    byIds("final_videos", qaRows.map((q) => q.final_video_id ?? "")),
+  ]);
+  const projects = await byIds("projects", [...[...versions.values()].map((v) => v.project_id as string), ...[...finals.values()].map((f) => f.project_id as string)]);
+  const proj = (id: unknown) => {
+    const p = projects.get(id as string);
+    return p ? { title: p.title as string, id: p.id as string } : { title: "Project", id: "" };
+  };
+  const items: QaRow[] = qaRows.map((q) => {
+    const sc = q.scene_id ? scenes.get(q.scene_id) : undefined;
+    const job = q.render_job_id ? jobs.get(q.render_job_id) : undefined;
+    const fin = q.final_video_id ? finals.get(q.final_video_id) : undefined;
+    return {
+      ...q,
+      scenes: sc
+        ? {
+            id: sc.id as string,
+            scene_order: sc.scene_order as number,
+            duration_s: Number(sc.duration_s),
+            shot_type: sc.shot_type as string,
+            motion_prompt: sc.motion_prompt as string,
+            model_id: (sc.model_id as string) ?? null,
+            assets: { vertical_path: (assets.get(sc.background_asset_id as string)?.vertical_path as string) ?? null },
+            storyboard_versions: { projects: proj(versions.get(sc.storyboard_version_id as string)?.project_id) },
+          }
+        : null,
+      render_jobs: job ? { model_id: job.model_id as string, attempt: job.attempt as number, clip_path: (job.clip_path as string) ?? null, error: (job.error as string) ?? null } : null,
+      final_videos: fin ? { file_path: (fin.file_path as string) ?? null, poster_path: (fin.poster_path as string) ?? null, projects: proj(fin.project_id) } : null,
+    };
+  });
+  const withScene = (d: DecRow): Dec => {
+    const sc = scenes.get(d.scene_id);
+    return { ...d, scenes: sc ? { scene_order: sc.scene_order as number, shot_type: sc.shot_type as string, motion_prompt: sc.motion_prompt as string, duration_s: Number(sc.duration_s) } : null };
+  };
+  type Dec = DecRow & { scenes: { scene_order: number; shot_type: string; motion_prompt: string; duration_s: number } | null };
+  const flagged = flaggedRows.map(withScene);
+  const recent = recentRows.map(withScene);
   const names = Object.fromEntries(registry.models.map((m) => [m.model_id, m.display_name]));
 
   const assetPaths = items.map((i) => i.scenes?.assets?.vertical_path ?? "");

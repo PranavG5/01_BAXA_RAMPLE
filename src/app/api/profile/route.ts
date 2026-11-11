@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireApiUser } from "@/lib/server/auth";
 import { api, badRequest, readJson } from "@/lib/server/http";
-import { db, must } from "@/lib/server/supabase";
+import { db, must } from "@/lib/server/db";
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
 

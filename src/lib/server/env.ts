@@ -31,10 +31,6 @@ function parseMusic(): MusicTrack[] {
 }
 
 export const env = {
-  supabaseUrl: () => required("NEXT_PUBLIC_SUPABASE_URL", read("NEXT_PUBLIC_SUPABASE_URL")),
-  supabaseServiceKey: () =>
-    required("SUPABASE_SERVICE_ROLE_KEY", read("SUPABASE_SERVICE_ROLE_KEY") ?? read("SUPABASE_SECRET_KEY")),
-
   anthropicModel: () => read("ANTHROPIC_MODEL") ?? "claude-opus-5-5",
   anthropicQaModel: () => read("ANTHROPIC_QA_MODEL") ?? read("ANTHROPIC_MODEL") ?? "claude-opus-5-5",
 

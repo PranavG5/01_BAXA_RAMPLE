@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireApiStaff } from "@/lib/server/auth";
 import { api, badRequest, readJson } from "@/lib/server/http";
-import { db, must } from "@/lib/server/supabase";
+import { db, must } from "@/lib/server/db";
 import { MOTION_TAGS } from "@/lib/core/vocabulary";
 
 const Tag = z.enum(MOTION_TAGS);

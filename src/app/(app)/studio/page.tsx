@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { requirePageUser } from "@/lib/server/auth";
 import { listAssets } from "@/lib/server/pipeline/assets";
-import { db, must } from "@/lib/server/supabase";
+import { db, must } from "@/lib/server/db";
 import { libraryReadiness } from "@/lib/core/library";
 import type { Project } from "@/lib/types";
 import { EmptyState, LinkButton, Notice, PageHeader, StatusBadge } from "@/components/ui";

@@ -1,7 +1,7 @@
 import "server-only";
 import type { Asset, BusinessProfile, FinalVideo, Project, QaResult, RenderJob, RouterDecisionRow, Scene, StoryboardVersion } from "../../types";
 import { signedUrls } from "../storage";
-import { db, must } from "../supabase";
+import { db, must } from "../db";
 import { approvalBlockers, loadScenes } from "./projects";
 import { loadRegistry } from "./registry";
 

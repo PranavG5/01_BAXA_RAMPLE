@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireApiStaff } from "@/lib/server/auth";
 import { api, badRequest, readJson } from "@/lib/server/http";
-import { db, must } from "@/lib/server/supabase";
+import { db, must } from "@/lib/server/db";
 import { SHOT_TYPES } from "@/lib/core/vocabulary";
 
 /** FR-15: pin a model to a scene type without a redeploy (null removes the pin). */

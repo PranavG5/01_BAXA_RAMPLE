@@ -3,7 +3,7 @@ import { hardCandidates } from "../../core/routing-rules";
 import type { FinalVideo, Project, QaResult, RenderJob, Scene } from "../../types";
 import { audit } from "../audit";
 import { badRequest, conflict, notFound } from "../http";
-import { db, must } from "../supabase";
+import { db, must } from "../db";
 import { loadScenes, loadVersion } from "./projects";
 import { loadRegistry } from "./registry";
 import { assemble, createJob, syncProjectStatus } from "./render";
