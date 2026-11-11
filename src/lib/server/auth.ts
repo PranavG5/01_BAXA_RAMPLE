@@ -26,8 +26,14 @@ export const SESSION_COOKIE = "rample_session";
 const SESSION_DAYS = 30;
 
 function sessionKey(): string {
-  // Prefer a dedicated secret; fall back to one derived from the service key so it is never empty.
-  return process.env.SESSION_SECRET || createHmac("sha256", env.supabaseServiceKey()).update("rample-session").digest("hex");
+  // Login must work even before the database keys are configured, so this never throws.
+  const base =
+    process.env.SESSION_SECRET ||
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.SUPABASE_SECRET_KEY ||
+    process.env.CRON_SECRET ||
+    "rample-single-admin-session-v1";
+  return createHmac("sha256", base).update("rample-session").digest("hex");
 }
 
 function sign(payload: string): string {
