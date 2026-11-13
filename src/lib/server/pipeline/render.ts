@@ -405,6 +405,9 @@ function pickMusic(mood: string): string | null {
 
 async function ensureVoiceovers(projectId: string, scenes: Scene[]): Promise<Map<string, { path: string; seconds: number | null }>> {
   const out = new Map<string, { path: string; seconds: number | null }>();
+  // Without an ElevenLabs key the video is made without voiceover (text and
+  // music still go in) rather than stalling; the Render panel says so.
+  if (env.mediaMode() !== "mock" && !env.elevenLabsApiKey()) return out;
   for (const s of scenes) {
     if (!s.voiceover.trim()) continue;
     const key = fnv1a(`${s.voiceover.trim()}|${env.elevenLabsVoiceId()}|${env.elevenLabsModelId()}|${env.mediaMode()}`);
@@ -546,7 +549,8 @@ async function retryOrReviewFinal(final: FinalVideo, project: Project, version: 
 async function runFinalQa(final: FinalVideo, project: Project, version: StoryboardVersion, scenes: Scene[]) {
   const file = await getObject("media", final.file_path!);
   const expected = totalRuntime(scenes);
-  const expectAudio = scenes.some((s) => s.voiceover.trim()) || env.musicTracks().length > 0 || env.mediaMode() === "mock";
+  const voiceoverMade = !!env.elevenLabsApiKey() && scenes.some((s) => s.voiceover.trim());
+  const expectAudio = voiceoverMade || env.musicTracks().length > 0 || env.mediaMode() === "mock";
   let probe = null;
   let posterPath: string | null = null;
   await withTempDir(async (dir) => {

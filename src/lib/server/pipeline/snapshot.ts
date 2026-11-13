@@ -1,5 +1,6 @@
 import "server-only";
 import type { Asset, BusinessProfile, FinalVideo, Project, QaResult, RenderJob, RouterDecisionRow, Scene, StoryboardVersion } from "../../types";
+import { env } from "../env";
 import { signedUrls } from "../storage";
 import { db, must } from "../db";
 import { approvalBlockers, loadScenes } from "./projects";
@@ -27,6 +28,8 @@ export interface ProjectSnapshot {
   scenes: SceneView[];
   finals: FinalView[];
   blockers: string[];
+  /** Missing keys that stop or change the final video, shown on the Render panel. */
+  setupIssues: string[];
   credits: { estimated: number; committed: number; cap: number; blockedByCap: boolean };
   modelNames: Record<string, string>;
 }
@@ -123,7 +126,20 @@ export async function projectSnapshot(business: BusinessProfile, project: Projec
     scenes,
     finals,
     blockers,
+    setupIssues: setupIssues(),
     credits: { estimated: Number(version?.est_credits ?? 0), committed: Math.round(committed * 100) / 100, cap: project.credit_cap, blockedByCap },
     modelNames,
   };
+}
+
+function setupIssues(): string[] {
+  if (env.mediaMode() === "mock") return [];
+  const issues: string[] = [];
+  if (!env.shotstackApiKey()) {
+    issues.push("Your scenes are saved, but the final video cannot be put together until SHOTSTACK_API_KEY is added in Vercel (then redeploy). Assembly starts on its own after that.");
+  }
+  if (!env.elevenLabsApiKey()) {
+    issues.push("No voiceover: ELEVENLABS_API_KEY is not set in Vercel, so videos are made with text and music only. Add it and redeploy to include a voiceover.");
+  }
+  return issues;
 }

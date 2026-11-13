@@ -37,7 +37,9 @@ export function RenderPanel({ snap, onChange }: { snap: ProjectSnapshot; onChang
             ? "Adding your text, voiceover, music and logo…"
             : version.state === "qa"
               ? "Running final checks…"
-              : "Animating your scenes. Each one is quality checked against your original photo.";
+              : snap.scenes.length && snap.scenes.every((s) => ["passed", "not_needed"].includes(s.render_status))
+                ? "All scenes are ready. Putting your video together…"
+                : "Animating your scenes. Each one is quality checked against your original photo.";
 
   return (
     <Card className="p-6">
@@ -50,6 +52,12 @@ export function RenderPanel({ snap, onChange }: { snap: ProjectSnapshot; onChang
           Spent <b className="text-ink">{snap.credits.committed}</b> of {snap.credits.cap} credits (${(snap.credits.committed * USD_PER_CREDIT).toFixed(2)})
         </div>
       </div>
+
+      {!delivered && snap.setupIssues.map((issue) => (
+        <div key={issue} className="mt-4">
+          <Notice>{issue}</Notice>
+        </div>
+      ))}
 
       {snap.credits.blockedByCap && (
         <div className="mt-4">
