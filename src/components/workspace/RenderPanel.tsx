@@ -53,12 +53,6 @@ export function RenderPanel({ snap, onChange }: { snap: ProjectSnapshot; onChang
         </div>
       </div>
 
-      {!delivered && snap.setupIssues.map((issue) => (
-        <div key={issue} className="mt-4">
-          <Notice>{issue}</Notice>
-        </div>
-      ))}
-
       {snap.credits.blockedByCap && (
         <div className="mt-4">
           <Notice>

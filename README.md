@@ -58,7 +58,7 @@ Without these settings, Vercel only offers `/tmp`, which belongs to a single ser
 ### 2. Vercel
 
 1. Import this repository in Vercel (framework preset: Next.js).
-2. Add every variable from `.env.example` under **Settings > Environment Variables**. At minimum: `ANTHROPIC_API_KEY`, `HIGGSFIELD_*` and/or `PIKA_API_KEY`, `SHOTSTACK_API_KEY`, `ELEVENLABS_API_KEY`, `CRON_SECRET`.
+2. Add every variable from `.env.example` under **Settings > Environment Variables**. At minimum: `ANTHROPIC_API_KEY`, `HIGGSFIELD_*` and/or `PIKA_API_KEY`, the three Supabase variables, and `CRON_SECRET`. `SHOTSTACK_API_KEY` and `ELEVENLABS_API_KEY` are optional: without Shotstack the app assembles videos itself with ffmpeg, and without ElevenLabs videos have captions but no spoken voiceover.
 3. Deploy and sign in with the single admin account:
 
    - Email: `test@rample.ai`
