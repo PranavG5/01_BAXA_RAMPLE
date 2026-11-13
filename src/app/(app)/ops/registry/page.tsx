@@ -20,7 +20,9 @@ export default async function RegistryPage() {
         action={
           <div className="flex flex-wrap gap-2">
             <Badge tone={status.mode === "mock" ? "warn" : "good"}>Media: {status.mode}</Badge>
-            <Badge tone={status.higgsfield ? "good" : "bad"}>Higgsfield {status.higgsfield ? "connected" : "no key"}</Badge>
+            <span title={status.higgsfield ? undefined : "Set HIGGSFIELD_API_KEY_ID and HIGGSFIELD_API_KEY_SECRET (or HIGGSFIELD_CREDENTIALS=id:secret) in Vercel, then redeploy."}>
+              <Badge tone={status.higgsfield ? "good" : "bad"}>Higgsfield {status.higgsfield ? "connected" : status.higgsfieldProblem}</Badge>
+            </span>
             <Badge tone={status.pika ? "good" : "bad"}>Pika {status.pika ? "connected" : "no key"}</Badge>
           </div>
         }

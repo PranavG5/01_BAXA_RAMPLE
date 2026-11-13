@@ -16,6 +16,7 @@ export function providerStatus() {
   return {
     mode: env.mediaMode(),
     higgsfield: higgsfield.configured(),
+    higgsfieldProblem: env.higgsfieldKey().problem,
     pika: pika.configured(),
   };
 }

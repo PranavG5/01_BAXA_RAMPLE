@@ -30,18 +30,33 @@ function parseMusic(): MusicTrack[] {
   return single ? [{ mood: "default", url: single, license: read("MUSIC_LICENSE") ?? "owner-supplied" }] : [];
 }
 
+/**
+ * Higgsfield auth is "<key id>:<key secret>". Accepts the names in .env.example
+ * plus the ones Higgsfield's own SDK uses (HF_KEY, HF_API_KEY + HF_API_SECRET),
+ * and a single HIGGSFIELD_API_KEY holding "id:secret". When something is
+ * missing, `problem` says what, for the registry page badge.
+ */
+function higgsfieldKey(): { credentials?: string; problem?: string } {
+  const first = (...names: string[]) => names.map(read).find(Boolean);
+  const combined = first("HIGGSFIELD_CREDENTIALS", "HF_KEY", "HF_CREDENTIALS");
+  if (combined) return combined.includes(":") ? { credentials: combined } : { problem: "key must be id:secret" };
+  const single = first("HIGGSFIELD_API_KEY", "HIGGSFIELD_KEY");
+  if (single?.includes(":")) return { credentials: single };
+  const id = first("HIGGSFIELD_API_KEY_ID", "HIGGSFIELD_KEY_ID", "HF_API_KEY") ?? single;
+  const secret = first("HIGGSFIELD_API_KEY_SECRET", "HIGGSFIELD_API_SECRET", "HIGGSFIELD_SECRET", "HF_API_SECRET");
+  if (id && secret) return { credentials: `${id}:${secret}` };
+  if (id) return { problem: "secret missing" };
+  if (secret) return { problem: "key id missing" };
+  return { problem: "no key" };
+}
+
 export const env = {
   anthropicModel: () => read("ANTHROPIC_MODEL") ?? "claude-opus-5-5",
   anthropicQaModel: () => read("ANTHROPIC_QA_MODEL") ?? read("ANTHROPIC_MODEL") ?? "claude-opus-5-5",
 
   higgsfieldBaseUrl: () => read("HIGGSFIELD_BASE_URL") ?? "https://api.higgsfield.ai",
-  higgsfieldCredentials: () => {
-    const combined = read("HIGGSFIELD_CREDENTIALS");
-    if (combined) return combined;
-    const id = read("HIGGSFIELD_API_KEY_ID");
-    const secret = read("HIGGSFIELD_API_KEY_SECRET");
-    return id && secret ? `${id}:${secret}` : undefined;
-  },
+  higgsfieldCredentials: () => higgsfieldKey().credentials,
+  higgsfieldKey,
   higgsfieldWebhookSecret: () => read("HIGGSFIELD_WEBHOOK_SECRET"),
 
   pikaBaseUrl: () => read("PIKA_BASE_URL") ?? "https://api.dev.pika.art",
