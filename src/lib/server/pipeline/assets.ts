@@ -9,11 +9,37 @@ import { HttpError } from "../http";
 
 const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
 
+export const MAX_PHOTO_BYTES = MAX_UPLOAD_BYTES;
+
 /** FR-1: store the photo and its derived 9:16 start image; tagging runs right after. */
 export async function uploadAsset(business: BusinessProfile, file: File, consent: boolean): Promise<Asset> {
   if (!consent) throw new HttpError(400, "Please confirm you have the right to use this photo, including any customer faces.");
   if (file.size > MAX_UPLOAD_BYTES) throw new HttpError(413, "Photos must be 20 MB or smaller.");
-  const input = Buffer.from(await file.arrayBuffer());
+  return createAsset(business, Buffer.from(await file.arrayBuffer()), file.name, file.type);
+}
+
+/** Where the browser uploads a photo before it is processed (Supabase Storage only). */
+export function incomingKey(businessId: string, filename: string): string {
+  const ext = (filename.match(/\.([a-z0-9]{2,5})$/i)?.[1] ?? "img").toLowerCase();
+  return `incoming/${businessId}/${randomUUID()}.${ext}`;
+}
+
+/** Processes a photo the browser uploaded straight to storage, then removes the upload. */
+export async function finishIncomingAsset(business: BusinessProfile, key: string, filename: string, mime: string, consent: boolean): Promise<Asset> {
+  if (!consent) throw new HttpError(400, "Please confirm you have the right to use this photo, including any customer faces.");
+  if (!key.startsWith(`incoming/${business.id}/`) || key.includes("..")) throw new HttpError(400, "Unknown upload.");
+  try {
+    const input = await getObject("assets", key).catch(() => {
+      throw new HttpError(404, "The upload did not arrive. Please try again.");
+    });
+    if (input.length > MAX_UPLOAD_BYTES) throw new HttpError(413, "Photos must be 20 MB or smaller.");
+    return await createAsset(business, input, filename, mime);
+  } finally {
+    await removeObjects("assets", [key]);
+  }
+}
+
+async function createAsset(business: BusinessProfile, input: Buffer, filename: string, mime: string): Promise<Asset> {
   let processed;
   try {
     processed = await processPhoto(input);
@@ -37,8 +63,8 @@ export async function uploadAsset(business: BusinessProfile, file: File, consent
         storage_path: `${dir}/original.jpg`,
         vertical_path: `${dir}/vertical.jpg`,
         thumb_path: `${dir}/thumb.jpg`,
-        original_filename: file.name.slice(0, 200),
-        mime: file.type || null,
+        original_filename: filename.slice(0, 200),
+        mime: mime || null,
         width: processed.width,
         height: processed.height,
         orientation: processed.orientation,

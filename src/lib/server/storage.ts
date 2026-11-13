@@ -64,6 +64,20 @@ export function localPath(bucket: Bucket, key: string): string {
   return full;
 }
 
+/**
+ * A one-time link the browser can PUT a file to, straight into Supabase
+ * Storage. This keeps large photos out of the app's own requests, which
+ * Vercel caps at 4.5 MB. Null with local storage (no such cap there).
+ */
+export async function createUploadTarget(bucket: Bucket, key: string): Promise<{ url: string } | null> {
+  checkKey(key);
+  const store = await storageFor(bucket);
+  if (!store) return null;
+  const { data, error } = await store.createSignedUploadUrl(key);
+  if (error || !data) throw new Error(`Could not prepare the upload: ${error?.message ?? "unknown error"}`);
+  return { url: data.signedUrl };
+}
+
 export async function putObject(bucket: Bucket, key: string, body: Buffer | Uint8Array, contentType: string) {
   checkKey(key);
   const store = await storageFor(bucket);

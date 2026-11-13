@@ -9,6 +9,9 @@ export async function call<T = unknown>(url: string, init?: RequestInit & { json
     body: json !== undefined ? JSON.stringify(json) : rest.body,
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error((data as { error?: string }).error ?? `Request failed (${res.status})`);
+  if (!res.ok) {
+    const fallback = res.status === 413 ? "That is too large to send in one go. Try fewer or smaller files." : `Request failed (${res.status})`;
+    throw new Error((data as { error?: string }).error ?? fallback);
+  }
   return data as T;
 }
