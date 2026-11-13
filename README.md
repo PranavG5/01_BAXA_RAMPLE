@@ -109,6 +109,8 @@ The seed registry (`0002_seed_registry.sql`) contains seven image-to-video model
 
 Every seed is marked "usable with caveats" with no evaluation date, so the registry page flags all of them for re-evaluation until the UI/UX team records real results (Appendix A). The `best_for` / `avoid_for` tags are starting guesses. Higgsfield does not publish per-model prices in its docs, so those costs are estimates to confirm in the Higgsfield console. Note: Pika's older models on fal.ai (`fal-ai/pika/v2.2/...`) were retired on 2026-10-29; this app uses Pika's own API.
 
+To add a model, click **Add model** on the Registry page and search: the list comes live from Pika's public catalog API and Higgsfield's model docs (about 150 video models). Choosing one reads its input schema and fills in the endpoint, start-image and duration fields, limits, 9:16 and 720p settings (audio, watermarks and prompt rewriting off) and, for Pika, the price. Anything that needs a person, such as a Higgsfield price or an input the app cannot provide, is listed at the top of the form, and such models are saved as "not usable" until fixed. "Enter a model manually" is still there for anything else.
+
 Each entry's `request_config` maps the scene onto that model's field names (`image_url` vs `image`, `duration` vs `duration_s`, static extras like `generate_audio: false`), so adding a model is a registry edit, not a code change.
 
 ## Decisions on the PRD's open questions

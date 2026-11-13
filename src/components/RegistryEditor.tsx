@@ -1,8 +1,9 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { RegistryModel } from "@/lib/core/routing-rules";
+import type { CatalogDraft, CatalogEntry } from "@/lib/core/catalog";
 import { MOTION_TAGS, SHOT_TYPES, labelFor } from "@/lib/core/vocabulary";
 import { call } from "@/lib/client";
 import { Badge, Card, btn, cx } from "./ui";
@@ -40,7 +41,8 @@ const BLANK: RegistryModel = {
 
 export function RegistryEditor({ models, pins, windowDays }: { models: Row[]; pins: Record<string, string>; windowDays: number }) {
   const router = useRouter();
-  const [editing, setEditing] = useState<RegistryModel | null>(null);
+  const [editing, setEditing] = useState<{ model: RegistryModel; warnings?: string[] } | null>(null);
+  const [picking, setPicking] = useState(false);
   const [days, setDays] = useState(String(windowDays));
 
   async function act(fn: () => Promise<unknown>) {
@@ -55,7 +57,7 @@ export function RegistryEditor({ models, pins, windowDays }: { models: Row[]; pi
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-end gap-3">
-        <button className={cx(btn.base, btn.primary)} onClick={() => setEditing({ ...BLANK })}>Add model</button>
+        <button className={cx(btn.base, btn.primary)} onClick={() => setPicking(true)}>Add model</button>
         <label className="text-sm">
           Re-evaluation window (days)
           <span className="flex gap-2">
@@ -102,7 +104,7 @@ export function RegistryEditor({ models, pins, windowDays }: { models: Row[]; pi
                   {m.stale && <Badge tone="warn" className="mt-1">Re-evaluate</Badge>}
                 </td>
                 <td className="px-4 py-3 text-right whitespace-nowrap">
-                  <button className="text-sm text-brand underline" onClick={() => setEditing(m)}>Edit</button>
+                  <button className="text-sm text-brand underline" onClick={() => setEditing({ model: m })}>Edit</button>
                   <button className="ml-3 text-sm text-muted underline" onClick={() => act(() => call("/api/registry", { method: "PATCH", json: { model_id: m.model_id, enabled: !m.enabled } }))}>
                     {m.enabled ? "Disable" : "Enable"}
                   </button>
@@ -129,12 +131,141 @@ export function RegistryEditor({ models, pins, windowDays }: { models: Row[]; pi
         </div>
       </Card>
 
-      {editing && <ModelForm model={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); router.refresh(); }} />}
+      {picking && (
+        <CatalogPicker
+          existing={models}
+          onClose={() => setPicking(false)}
+          onPick={(draft) => {
+            setPicking(false);
+            setEditing(draft);
+          }}
+          onManual={() => {
+            setPicking(false);
+            setEditing({ model: { ...BLANK } });
+          }}
+        />
+      )}
+      {editing && <ModelForm model={editing.model} warnings={editing.warnings} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); router.refresh(); }} />}
     </div>
   );
 }
 
-function ModelForm({ model, onClose, onSaved }: { model: RegistryModel; onClose: () => void; onSaved: () => void }) {
+const KIND_LABEL = (k: string) => k.replace(/[-_]/g, " ");
+
+function CatalogPicker({
+  existing,
+  onClose,
+  onPick,
+  onManual,
+}: {
+  existing: RegistryModel[];
+  onClose: () => void;
+  onPick: (draft: { model: RegistryModel; warnings: string[] }) => void;
+  onManual: () => void;
+}) {
+  const [entries, setEntries] = useState<CatalogEntry[] | null>(null);
+  const [errors, setErrors] = useState<string[]>([]);
+  const [query, setQuery] = useState("");
+  const [provider, setProvider] = useState<"all" | "pika" | "higgsfield">("all");
+  const [photoOnly, setPhotoOnly] = useState(true);
+  const [loading, setLoading] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const added = useMemo(() => new Map(existing.map((m) => [m.model_id, m])), [existing]);
+
+  useEffect(() => {
+    call<{ entries: CatalogEntry[]; errors: string[] }>("/api/registry/catalog")
+      .then((r) => {
+        setEntries(r.entries);
+        setErrors(r.errors);
+      })
+      .catch((e) => setError(e instanceof Error ? e.message : "Could not load the catalogs"));
+  }, []);
+
+  const results = useMemo(() => {
+    const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+    return (entries ?? [])
+      .filter((e) => provider === "all" || e.provider === provider)
+      .filter((e) => !photoOnly || e.startImage === true)
+      .filter((e) => {
+        const hay = `${e.name} ${e.endpoint} ${e.vendor} ${e.kind} ${e.provider}`.toLowerCase();
+        return words.every((w) => hay.includes(w));
+      })
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [entries, query, provider, photoOnly]);
+
+  async function pick(e: CatalogEntry) {
+    const existingModel = added.get(`${e.provider}:${e.endpoint}`);
+    if (existingModel) return onPick({ model: existingModel, warnings: [] });
+    setLoading(e.endpoint);
+    setError(null);
+    try {
+      const d = await call<CatalogDraft>(`/api/registry/catalog/draft?provider=${e.provider}&endpoint=${encodeURIComponent(e.endpoint)}`);
+      onPick({ model: { ...d.model, registry_version: 0 }, warnings: d.warnings });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not read that model");
+    } finally {
+      setLoading(null);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end bg-black/40" onClick={onClose}>
+      <div className="flex h-full w-full max-w-xl flex-col bg-white" onClick={(e) => e.stopPropagation()}>
+        <div className="border-b border-line p-6 pb-4">
+          <h2 className="text-lg font-semibold">Add model</h2>
+          <p className="text-xs text-muted">Search every video model Pika and Higgsfield offer. Choosing one fills in its endpoint, fields, limits and price.</p>
+          <input autoFocus className={cx(input, "mt-3")} placeholder="Search, e.g. kling, seedance 2.5, veo" value={query} onChange={(e) => setQuery(e.target.value)} />
+          <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+            {(["all", "pika", "higgsfield"] as const).map((p) => (
+              <button key={p} type="button" onClick={() => setProvider(p)} className={cx("rounded-full border px-2.5 py-1 capitalize", provider === p ? "border-brand bg-brand-soft text-brand" : "border-line text-muted")}>
+                {p === "all" ? "All providers" : p}
+              </button>
+            ))}
+            <label className="ml-auto flex items-center gap-1.5 text-muted">
+              <input type="checkbox" checked={photoOnly} onChange={(e) => setPhotoOnly(e.target.checked)} className="accent-brand" /> Only models that animate a photo
+            </label>
+          </div>
+        </div>
+        <div className="flex-1 overflow-y-auto p-6 pt-3">
+          {errors.map((e) => <p key={e} className="mb-2 rounded-md bg-warn/10 px-3 py-2 text-xs text-[#7a4a00]">{e}</p>)}
+          {error && <p className="mb-2 rounded-md bg-bad/10 px-3 py-2 text-xs text-bad">{error}</p>}
+          {!entries && !error && <p className="text-sm text-muted">Loading the Pika and Higgsfield catalogs…</p>}
+          {entries && <p className="mb-2 text-xs text-muted">{results.length} model{results.length === 1 ? "" : "s"}</p>}
+          <ul className="divide-y divide-line">
+            {results.map((e) => {
+              const isAdded = added.has(`${e.provider}:${e.endpoint}`);
+              return (
+                <li key={`${e.provider}:${e.endpoint}`}>
+                  <button type="button" disabled={!!loading} onClick={() => pick(e)} className={cx("flex w-full items-start gap-3 py-3 text-left hover:bg-canvas", loading === e.endpoint && "opacity-60")}>
+                    <div className="min-w-0 flex-1">
+                      <p className="font-medium">{e.name}</p>
+                      <p className="truncate text-xs text-muted">{e.endpoint}</p>
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        <Badge tone="brand">{e.provider === "pika" ? "Pika" : "Higgsfield"}</Badge>
+                        <Badge>{KIND_LABEL(e.kind)}</Badge>
+                        {e.startImage === false && <Badge tone="bad">No start image</Badge>}
+                        {isAdded && <Badge tone="good">Added</Badge>}
+                      </div>
+                    </div>
+                    <span className="shrink-0 pt-0.5 text-xs text-muted">
+                      {loading === e.endpoint ? "Reading…" : e.fromCreditsPerSecond !== null ? `from ${e.fromCreditsPerSecond} cr/s` : e.provider === "higgsfield" ? "price in console" : "priced per token"}
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+        <div className="flex items-center gap-2 border-t border-line p-4">
+          <button className={cx(btn.base, btn.ghost)} onClick={onClose}>Cancel</button>
+          <button className="ml-auto text-sm text-muted underline" onClick={onManual}>Enter a model manually</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ModelForm({ model, warnings, onClose, onSaved }: { model: RegistryModel; warnings?: string[]; onClose: () => void; onSaved: () => void }) {
   const [m, setM] = useState<RegistryModel>(model);
   const [config, setConfig] = useState(JSON.stringify(model.request_config, null, 2));
   const [error, setError] = useState<string | null>(null);
@@ -157,6 +288,11 @@ function ModelForm({ model, onClose, onSaved }: { model: RegistryModel; onClose:
       <div className="h-full w-full max-w-xl overflow-y-auto bg-white p-6" onClick={(e) => e.stopPropagation()}>
         <h2 className="text-lg font-semibold">{model.registry_version ? "Edit model" : "Add model"}</h2>
         <p className="text-xs text-muted">Fill this from the UI/UX evaluation template (Appendix A).</p>
+        {!!warnings?.length && (
+          <ul className="mt-3 space-y-1 rounded-lg border border-warn/25 bg-warn/10 px-3 py-2 text-xs text-[#7a4a00]">
+            {warnings.map((w) => <li key={w}>{w}</li>)}
+          </ul>
+        )}
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
           <label className="text-sm sm:col-span-2">Model ID<input className={input} value={m.model_id} onChange={(e) => set("model_id", e.target.value)} disabled={!!model.registry_version} /></label>
           <label className="text-sm">Provider

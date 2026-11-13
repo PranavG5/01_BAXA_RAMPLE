@@ -32,6 +32,7 @@ const ModelInput = z.object({
     image_field: z.string().min(1),
     prompt_field: z.string().min(1),
     duration_field: z.string().min(1),
+    duration_as_string: z.boolean().optional(),
     negative_prompt_field: z.string().optional(),
     static: z.record(z.string(), z.unknown()).optional(),
   }),

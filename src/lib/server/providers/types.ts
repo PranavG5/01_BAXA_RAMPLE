@@ -48,7 +48,7 @@ export function buildRequestBody(model: RegistryModel, input: SubmitInput, bille
   const body: Record<string, unknown> = { ...(cfg.static ?? {}) };
   body[cfg.image_field] = input.imageUrl;
   body[cfg.prompt_field] = input.prompt;
-  body[cfg.duration_field] = billedSeconds;
+  body[cfg.duration_field] = cfg.duration_as_string ? String(billedSeconds) : billedSeconds;
   if (cfg.negative_prompt_field && input.negativePrompt) body[cfg.negative_prompt_field] = input.negativePrompt;
   return body;
 }

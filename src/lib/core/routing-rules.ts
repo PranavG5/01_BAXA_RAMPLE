@@ -33,6 +33,8 @@ export interface RequestConfig {
   image_field: string;
   prompt_field: string;
   duration_field: string;
+  /** Send the duration as a string ("5") for models whose schema types it that way. */
+  duration_as_string?: boolean;
   negative_prompt_field?: string;
   static?: Record<string, unknown>;
 }
