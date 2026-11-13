@@ -75,12 +75,30 @@ async function openPglite(): Promise<Driver> {
   };
 }
 
+/**
+ * Gives sslmode its usual libpq meaning. node-postgres otherwise treats
+ * sslmode=require as full certificate checking, which fails on hosts with
+ * their own CA such as Supabase. Supabase URLs without sslmode get require.
+ */
+export function normalizeDatabaseUrl(url: string): string {
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    return url;
+  }
+  const q = u.searchParams;
+  if (!q.has("sslmode") && /(^|\.)supabase\.(co|com)$/.test(u.hostname)) q.set("sslmode", "require");
+  if (q.has("sslmode") && !q.has("uselibpqcompat")) q.set("uselibpqcompat", "true");
+  return u.toString();
+}
+
 function openPostgres(url: string): Driver {
   const types = {
     getTypeParser: ((oid: number, format?: "text" | "binary") =>
       PARSERS[oid as keyof typeof PARSERS] ?? pg.types.getTypeParser(oid, format)) as typeof pg.types.getTypeParser,
   };
-  const pool = new pg.Pool({ connectionString: url, max: 5, idleTimeoutMillis: 10_000, types });
+  const pool = new pg.Pool({ connectionString: normalizeDatabaseUrl(url), max: 5, idleTimeoutMillis: 10_000, types });
   pool.on("error", (e) => console.error("[db] idle client error", e));
   return {
     query: <T>(sql: string, params?: unknown[]) => pool.query(sql, params) as unknown as Promise<{ rows: T[] }>,

@@ -48,6 +48,8 @@ Automatic Mode (FR-31, P2) is a placeholder page in the Marketing tab, as the PR
 
 The app runs `db/migrations/*.sql` on first use. Without these stores, Vercel only offers `/tmp`, which belongs to a single server instance: an upload lands on one instance and the next page is often served by another, so photos seem to disappear. The app shows a red banner when this is the case.
 
+**Using Supabase for the database:** create a Supabase project, click **Connect**, copy the **Transaction pooler** connection string (port 6543, works from Vercel), put your database password in it, and add it in Vercel as `DATABASE_URL`. The app handles Supabase's SSL and turns on row-level security for every table, so Supabase's public Data API cannot read them (the app connects as the table owner and is unaffected). Use a fresh project: the app creates its own tables.
+
 **On your own machine** nothing is needed: the app creates an embedded Postgres (PGlite) and a file store in `DATA_DIR` (default `./.data`). Set `DATABASE_URL` and `BLOB_READ_WRITE_TOKEN` locally to use the hosted stores instead.
 
 ### 2. Vercel
