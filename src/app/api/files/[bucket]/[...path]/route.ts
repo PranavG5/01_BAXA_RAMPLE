@@ -1,5 +1,5 @@
 import { stat, open } from "node:fs/promises";
-import { getBlobResponse, localPath, usesBlob, verifyFileLink, type Bucket } from "@/lib/server/storage";
+import { localPath, verifyFileLink, type Bucket } from "@/lib/server/storage";
 
 const TYPES: Record<string, string> = {
   jpg: "image/jpeg",
@@ -9,7 +9,7 @@ const TYPES: Record<string, string> = {
   mp3: "audio/mpeg",
 };
 
-/** Serves stored files behind short-lived signed links (with Range support for video). */
+/** Serves locally stored files behind short-lived signed links (with Range support for video). With Supabase Storage, links point at Supabase instead. */
 export async function GET(req: Request, { params }: { params: Promise<{ bucket: string; path: string[] }> }) {
   const { bucket, path } = await params;
   if (bucket !== "assets" && bucket !== "media") return new Response("Not found", { status: 404 });
@@ -25,22 +25,6 @@ export async function GET(req: Request, { params }: { params: Promise<{ bucket: 
     "Cache-Control": "private, max-age=300",
   };
   if (download) headers["Content-Disposition"] = `attachment; filename="${download.replace(/[^\w.-]/g, "_")}"`;
-
-  if (usesBlob()) {
-    let blob;
-    try {
-      blob = await getBlobResponse(bucket as Bucket, key, req.headers.get("range"));
-    } catch (err) {
-      console.error("[files] blob read failed", bucket, key, err);
-      return new Response("Could not read file", { status: 502 });
-    }
-    if (!blob) return new Response("Not found", { status: 404 });
-    const contentRange = blob.headers.get("content-range");
-    const length = blob.headers.get("content-length");
-    if (length) headers["Content-Length"] = length;
-    if (contentRange) headers["Content-Range"] = contentRange;
-    return new Response(blob.stream, { status: contentRange ? 206 : 200, headers });
-  }
 
   let file: string;
   let size: number;

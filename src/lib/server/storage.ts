@@ -2,30 +2,55 @@ import "server-only";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { del, get, put } from "@vercel/blob";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { env } from "./env";
-import { blobConfigured, dataDir, serverSecret } from "./paths";
+import { dataDir, serverSecret, supabaseStorageConfig } from "./paths";
 
 /**
- * File storage, served through signed /api/files links. Uses a private Vercel
- * Blob store when one is connected (needed on Vercel, where each server
- * instance has its own /tmp), otherwise local files under DATA_DIR/files.
+ * File storage. Uses Supabase Storage (private buckets "assets" and "media",
+ * created on first use) when SUPABASE_URL and a secret key are set; links are
+ * Supabase signed URLs. Otherwise local files under DATA_DIR/files, served
+ * through signed /api/files links.
  */
 export type Bucket = "assets" | "media";
 
-function blobPath(bucket: Bucket, key: string): string {
-  localPath(bucket, key); // same path validation as local storage
-  return `${bucket}/${key}`;
+const sg = globalThis as unknown as { __rampleStorage?: SupabaseClient; __rampleBuckets?: Map<string, Promise<void>> };
+
+function supabase(): SupabaseClient | null {
+  const cfg = supabaseStorageConfig();
+  if (!cfg) return null;
+  sg.__rampleStorage ??= createClient(cfg.url, cfg.key, { auth: { persistSession: false, autoRefreshToken: false } });
+  return sg.__rampleStorage;
 }
 
-export function usesBlob(): boolean {
-  return blobConfigured();
+/** Creates the private bucket the first time it is needed. */
+function ensureBucket(client: SupabaseClient, bucket: Bucket): Promise<void> {
+  sg.__rampleBuckets ??= new Map();
+  let p = sg.__rampleBuckets.get(bucket);
+  if (!p) {
+    p = (async () => {
+      const { error } = await client.storage.getBucket(bucket);
+      if (!error) return;
+      const created = await client.storage.createBucket(bucket, { public: false });
+      if (created.error && !/already exists/i.test(created.error.message)) {
+        throw new Error(`Could not create storage bucket "${bucket}": ${created.error.message}`);
+      }
+    })();
+    p.catch(() => sg.__rampleBuckets?.delete(bucket));
+    sg.__rampleBuckets.set(bucket, p);
+  }
+  return p;
 }
 
-/** Streams a file from the Blob store, forwarding a Range header. Null when missing. */
-export async function getBlobResponse(bucket: Bucket, key: string, range: string | null) {
-  const res = await get(blobPath(bucket, key), { access: "private", headers: range ? { range } : undefined });
-  return res && res.statusCode !== 304 ? res : null;
+async function storageFor(bucket: Bucket) {
+  const client = supabase();
+  if (!client) return null;
+  await ensureBucket(client, bucket);
+  return client.storage.from(bucket);
+}
+
+function checkKey(key: string) {
+  if (!key || key.startsWith("/") || key.split("/").some((part) => part === ".." || part === "")) throw new Error("Invalid storage path");
 }
 
 function fileRoot() {
@@ -40,13 +65,11 @@ export function localPath(bucket: Bucket, key: string): string {
 }
 
 export async function putObject(bucket: Bucket, key: string, body: Buffer | Uint8Array, contentType: string) {
-  if (usesBlob()) {
-    await put(blobPath(bucket, key), Buffer.from(body), {
-      access: "private",
-      contentType,
-      addRandomSuffix: false,
-      allowOverwrite: true,
-    });
+  checkKey(key);
+  const store = await storageFor(bucket);
+  if (store) {
+    const { error } = await store.upload(key, Buffer.from(body), { contentType, upsert: true });
+    if (error) throw new Error(`Could not save file (${bucket}/${key}): ${error.message}`);
     return key;
   }
   const full = localPath(bucket, key);
@@ -56,10 +79,12 @@ export async function putObject(bucket: Bucket, key: string, body: Buffer | Uint
 }
 
 export async function getObject(bucket: Bucket, key: string): Promise<Buffer> {
-  if (usesBlob()) {
-    const res = await get(blobPath(bucket, key), { access: "private", useCache: false });
-    if (!res || res.statusCode !== 200) throw new Error(`File not found (${bucket}/${key})`);
-    return Buffer.from(await new Response(res.stream).arrayBuffer());
+  checkKey(key);
+  const store = await storageFor(bucket);
+  if (store) {
+    const { data, error } = await store.download(key);
+    if (error || !data) throw new Error(`File not found (${bucket}/${key})`);
+    return Buffer.from(await data.arrayBuffer());
   }
   try {
     return await readFile(localPath(bucket, key));
@@ -69,9 +94,13 @@ export async function getObject(bucket: Bucket, key: string): Promise<Buffer> {
 }
 
 export async function removeObjects(bucket: Bucket, keys: (string | null | undefined)[]) {
-  if (usesBlob()) {
-    const paths = keys.filter((k): k is string => !!k).map((k) => blobPath(bucket, k));
-    if (paths.length) await del(paths).catch((e) => console.error("[storage] delete failed", e));
+  const store = await storageFor(bucket);
+  if (store) {
+    const paths = keys.filter((k): k is string => !!k);
+    if (paths.length) {
+      const { error } = await store.remove(paths);
+      if (error) console.error("[storage] delete failed", bucket, error.message);
+    }
     return;
   }
   for (const k of keys) if (k) await rm(localPath(bucket, k), { force: true }).catch(() => undefined);
@@ -93,6 +122,12 @@ export function verifyFileLink(bucket: string, key: string, exp: number, downloa
  * absolute when an outside service (video provider, Shotstack) must fetch it.
  */
 export async function signedUrl(bucket: Bucket, key: string, expiresInSeconds = 3600, download?: string, absolute = false) {
+  const store = await storageFor(bucket);
+  if (store) {
+    const { data, error } = await store.createSignedUrl(key, expiresInSeconds, download ? { download } : undefined);
+    if (error || !data) throw new Error(`Could not link file (${bucket}/${key}): ${error?.message ?? "unknown error"}`);
+    return data.signedUrl;
+  }
   const exp = Math.floor(Date.now() / 1000) + expiresInSeconds;
   const dl = download ?? "";
   const q = new URLSearchParams({ e: String(exp), s: signature(bucket, key, exp, dl) });
@@ -106,6 +141,15 @@ export async function signedUrl(bucket: Bucket, key: string, expiresInSeconds = 
 
 export async function signedUrls(bucket: Bucket, keys: string[], expiresInSeconds = 3600, absolute = false): Promise<Map<string, string>> {
   const out = new Map<string, string>();
+  const store = await storageFor(bucket);
+  if (store) {
+    const unique = [...new Set(keys.filter(Boolean))];
+    if (!unique.length) return out;
+    const { data, error } = await store.createSignedUrls(unique, expiresInSeconds);
+    if (error) throw new Error(`Could not link files (${bucket}): ${error.message}`);
+    for (const d of data ?? []) if (d.path && d.signedUrl && !d.error) out.set(d.path, d.signedUrl);
+    return out;
+  }
   for (const k of new Set(keys.filter(Boolean))) out.set(k, await signedUrl(bucket, k, expiresInSeconds, undefined, absolute));
   return out;
 }

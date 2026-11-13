@@ -2,7 +2,7 @@
 
 The MVP video pipeline from **PRD: Rample.ai Video Marketing Pipeline (v2)**. A salon or barbershop owner types one line ("$25 Tuesday Fade special"), reviews a storyboard built from photos of their own shop, approves it, and gets a QA-checked 9:16 video for Instagram Reels and TikTok.
 
-Next.js 16, Postgres (hosted, or embedded PGlite locally) with Vercel Blob or local file storage, Claude for every reasoning step, Higgsfield and Pika for image-to-video, Shotstack for assembly, ElevenLabs for voiceover.
+Next.js 16, Supabase (Postgres and Storage), or an embedded Postgres (PGlite) and local files for local development, Claude for every reasoning step, Higgsfield and Pika for image-to-video, Shotstack for assembly, ElevenLabs for voiceover.
 
 ```
 Photo library ─► Improve prompt ─► Draft storyboard ─► Route models ─► Owner approves? ──no──► revise (new version)
@@ -41,16 +41,19 @@ Automatic Mode (FR-31, P2) is a placeholder page in the Marketing tab, as the PR
 
 ### 1. Storage
 
-**On Vercel**, connect two stores under **Project > Storage**, then redeploy:
+**On Vercel**, everything is stored in Supabase. Create a Supabase project and add these in Vercel under **Settings > Environment Variables**, then redeploy:
 
-- A **Postgres database** (Neon, Supabase or any Postgres 13+). Vercel sets `DATABASE_URL` or `POSTGRES_URL`.
-- A **Blob store** for photos and videos. Vercel sets `BLOB_READ_WRITE_TOKEN`. Files are stored privately and served through short-lived signed `/api/files` links.
+| Variable | Where to find it in Supabase |
+|---|---|
+| `DATABASE_URL` | **Connect** > **Transaction pooler** (port 6543), with your database password filled in |
+| `SUPABASE_URL` | **Project Settings > API**: Project URL (`https://<ref>.supabase.co`) |
+| `SUPABASE_SECRET_KEY` | **Project Settings > API Keys**: a secret key (`sb_secret_...`), or the legacy `service_role` key. Server only. |
 
-The app runs `db/migrations/*.sql` on first use. Without these stores, Vercel only offers `/tmp`, which belongs to a single server instance: an upload lands on one instance and the next page is often served by another, so photos seem to disappear. The app shows a red banner when this is the case.
+The app runs `db/migrations/*.sql` on first use (use a fresh project; it creates its own tables), handles Supabase's SSL, and turns on row-level security for every table so Supabase's public Data API cannot read them. Photos and videos go to private Storage buckets `assets` and `media`, created automatically, and pages link to them with short-lived Supabase signed URLs. Supabase's free plan caps each file at 50 MB.
 
-**Using Supabase for the database:** create a Supabase project, click **Connect**, copy the **Transaction pooler** connection string (port 6543, works from Vercel), put your database password in it, and add it in Vercel as `DATABASE_URL`. The app handles Supabase's SSL and turns on row-level security for every table, so Supabase's public Data API cannot read them (the app connects as the table owner and is unaffected). Use a fresh project: the app creates its own tables.
+Without these settings, Vercel only offers `/tmp`, which belongs to a single server instance: an upload lands on one instance and the next page is often served by another, so photos seem to disappear. The app shows a red banner when this is the case.
 
-**On your own machine** nothing is needed: the app creates an embedded Postgres (PGlite) and a file store in `DATA_DIR` (default `./.data`). Set `DATABASE_URL` and `BLOB_READ_WRITE_TOKEN` locally to use the hosted stores instead.
+**On your own machine** nothing is needed: the app creates an embedded Postgres (PGlite) and a file store in `DATA_DIR` (default `./.data`). Set the three Supabase variables locally to use Supabase instead.
 
 ### 2. Vercel
 
@@ -117,7 +120,7 @@ These are the defaults this build uses. Each is a small change if the team decid
 | Provider connection: MCP or direct API? | Direct REST APIs from the server, behind one adapter interface. Claude only gets read-only registry data. |
 | Start-image support | Only `start_image_support = true` models are routable. Every start image is the owner's photo cropped to 1080x1920. |
 | Voiceover and music | ElevenLabs per scene; music from licensed URLs you configure (`MUSIC_URL` or `MUSIC_TRACKS`). |
-| Storage | Hosted Postgres plus private Vercel Blob in production; embedded Postgres and local files for local development. |
+| Storage | Supabase Postgres and private Supabase Storage in production; embedded Postgres and local files for local development. |
 | Cost ownership / target cost | Per-video credit cap (default 300 credits = $3), editable per business and per project. |
 | Failed renders | Credits for failed jobs count against the cap; failures retry up to 3 attempts, the last on the fallback model, then go to human review. |
 | Model visibility | Owners see "AI-animated" / "Photo motion" badges; the model name and router reason are behind a "why" link. |

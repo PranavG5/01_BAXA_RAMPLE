@@ -30,7 +30,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       </header>
       {temporary && (
         <div className="border-b border-bad/25 bg-bad/10 px-4 py-2 text-center text-xs font-medium text-bad">
-          Storage is not set up: photos and videos are kept on one temporary server and will disappear. Connect a Postgres database and a Blob store in Vercel (Storage tab), then redeploy.
+          Storage is not set up: photos and videos are kept on one temporary server and will disappear. Add DATABASE_URL, SUPABASE_URL and SUPABASE_SECRET_KEY in Vercel, then redeploy.
         </div>
       )}
       {mock && (
