@@ -2,11 +2,14 @@ import "server-only";
 import { mkdirSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { PGlite } from "@electric-sql/pglite";
-import { dataDir } from "./paths";
+import pg from "pg";
+import { databaseUrl, dataDir } from "./paths";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 /**
- * Local database: an embedded Postgres (PGlite) stored in DATA_DIR/db.
+ * Database: a hosted Postgres when DATABASE_URL (or POSTGRES_URL) is set,
+ * otherwise an embedded Postgres (PGlite) stored in DATA_DIR/db. Serverless
+ * hosts such as Vercel need the hosted one: each instance has its own /tmp.
  * The schema in db/migrations runs on first use. The small query builder
  * below covers exactly what the app needs (select/insert/update/upsert/delete,
  * eq/neq/in/is/not-null/lt filters, order, limit, single, count, rpc).
@@ -32,27 +35,100 @@ const PARSERS = {
   20: (v: string) => Number(v), // int8
 };
 
+/** The few calls the app makes, shared by PGlite and node-postgres. */
+interface Driver {
+  query<T>(sql: string, params?: unknown[]): Promise<{ rows: T[] }>;
+  /** Runs a script that may hold several statements; rolls back an open transaction on error. */
+  exec(sql: string): Promise<void>;
+}
+
 interface DbState {
-  pg: PGlite;
+  pg: Driver;
   columns: Map<string, Map<string, string>>; // table -> column -> udt_name
 }
 
 const g = globalThis as unknown as { __rampleDb?: Promise<DbState> };
 
-async function open(): Promise<DbState> {
+// One statement at a time keeps PGlite (single connection) predictable.
+let chain: Promise<unknown> = Promise.resolve();
+function serial<T>(fn: () => Promise<T>): Promise<T> {
+  const next = chain.then(fn, fn);
+  chain = next.catch(() => undefined);
+  return next;
+}
+
+async function openPglite(): Promise<Driver> {
   const dir = path.join(dataDir(), "db");
   mkdirSync(dir, { recursive: true });
-  const pg = await PGlite.create(dir, { parsers: PARSERS });
-  await pg.exec("create table if not exists _migrations (name text primary key, applied_at timestamptz not null default now())");
+  const lite = await PGlite.create(dir, { parsers: PARSERS });
+  return {
+    query: <T>(sql: string, params?: unknown[]) => serial(() => lite.query<T>(sql, params)),
+    exec: (sql) =>
+      serial(async () => {
+        try {
+          await lite.exec(sql);
+        } catch (err) {
+          await lite.exec("rollback").catch(() => undefined);
+          throw err;
+        }
+      }),
+  };
+}
+
+function openPostgres(url: string): Driver {
+  const types = {
+    getTypeParser: ((oid: number, format?: "text" | "binary") =>
+      PARSERS[oid as keyof typeof PARSERS] ?? pg.types.getTypeParser(oid, format)) as typeof pg.types.getTypeParser,
+  };
+  const pool = new pg.Pool({ connectionString: url, max: 5, idleTimeoutMillis: 10_000, types });
+  pool.on("error", (e) => console.error("[db] idle client error", e));
+  return {
+    query: <T>(sql: string, params?: unknown[]) => pool.query(sql, params) as unknown as Promise<{ rows: T[] }>,
+    exec: async (sql) => {
+      const client = await pool.connect();
+      try {
+        await client.query(sql);
+      } catch (err) {
+        await client.query("rollback").catch(() => undefined);
+        throw err;
+      } finally {
+        client.release();
+      }
+    },
+  };
+}
+
+// Held while migrating so several server instances starting at once on a
+// hosted database take turns instead of colliding.
+const MIGRATION_LOCK = "select pg_advisory_xact_lock(726561)";
+
+async function migrate(pg: Driver) {
+  await pg.exec(
+    `begin; ${MIGRATION_LOCK}; create table if not exists _migrations (name text primary key, applied_at timestamptz not null default now()); commit;`,
+  );
   const done = new Set((await pg.query<{ name: string }>("select name from _migrations")).rows.map((r) => r.name));
   const migDir = path.join(process.cwd(), "db", "migrations");
   for (const file of readdirSync(migDir).filter((f) => f.endsWith(".sql")).sort()) {
     if (done.has(file)) continue;
-    await pg.exec(readFileSync(path.join(migDir, file), "utf8"));
-    await pg.query("insert into _migrations (name) values ($1)", [file]);
+    // Each file and its bookkeeping row commit together. If another instance
+    // applied it while this one waited for the lock, this run fails, rolls
+    // back, and moves on.
+    const name = file.replace(/'/g, "''");
+    try {
+      await pg.exec(`begin;\n${MIGRATION_LOCK};\n${readFileSync(path.join(migDir, file), "utf8")}\n;insert into _migrations (name) values ('${name}');\ncommit;`);
+    } catch (err) {
+      const applied = (await pg.query("select 1 from _migrations where name = $1", [file])).rows.length > 0;
+      if (!applied) throw err;
+    }
   }
+}
+
+async function open(): Promise<DbState> {
+  const url = databaseUrl();
+  const pg = url ? openPostgres(url) : await openPglite();
+  await migrate(pg);
   const cols = await pg.query<{ table_name: string; column_name: string; udt_name: string }>(
-    "select table_name, column_name, udt_name from information_schema.columns where table_schema = 'public'",
+    "select table_name, column_name, udt_name from information_schema.columns where table_schema = current_schema()",
   );
   const columns = new Map<string, Map<string, string>>();
   for (const c of cols.rows) {
@@ -68,14 +144,6 @@ function state(): Promise<DbState> {
     throw e;
   });
   return g.__rampleDb;
-}
-
-// One statement at a time keeps PGlite (single connection) predictable.
-let chain: Promise<unknown> = Promise.resolve();
-function serial<T>(fn: () => Promise<T>): Promise<T> {
-  const next = chain.then(fn, fn);
-  chain = next.catch(() => undefined);
-  return next;
 }
 
 const IDENT = /^[a-z_][a-z0-9_]*$/;
@@ -233,7 +301,7 @@ class Query<T = unknown> implements PromiseLike<DbResult<T>> {
       if (this.mode === "select") {
         const tail = `${where()}${this.orders.length ? ` order by ${this.orders.map((o) => `${ident(o.col)} ${o.asc ? "asc" : "desc"}`).join(", ")}` : ""}${this.lim !== null ? ` limit ${Math.floor(this.lim)}` : ""}`;
         if (this.countOnly) {
-          const res = await serial(() => st.pg.query<{ n: number }>(`select count(*)::int as n from ${t}${tail}`, params));
+          const res = await st.pg.query<{ n: number }>(`select count(*)::int as n from ${t}${tail}`, params);
           return { data: null as T, error: null, count: res.rows[0]?.n ?? 0 };
         }
         sql = `select ${selectList(this.cols)} from ${t}${tail}`;
@@ -259,7 +327,7 @@ class Query<T = unknown> implements PromiseLike<DbResult<T>> {
         sql = `delete from ${t}${where()} returning *`;
       }
 
-      const res = await serial(() => st.pg.query<Row>(sql, params));
+      const res = await st.pg.query<Row>(sql, params);
       const rows = res.rows;
       if (this.cardinality === "single") {
         if (rows.length !== 1) return { data: null as T, error: { message: rows.length ? "Multiple rows returned" : "No rows found", code: "PGRST116" } };
@@ -285,7 +353,7 @@ class Db {
       const keys = Object.keys(args);
       keys.forEach(ident);
       const sql = `select ${ident(fn)}(${keys.map((k, i) => `${k} => $${i + 1}`).join(", ")}) as r`;
-      const res = await serial(() => st.pg.query<{ r: unknown }>(sql, keys.map((k) => args[k])));
+      const res = await st.pg.query<{ r: unknown }>(sql, keys.map((k) => args[k]));
       return { data: res.rows[0]?.r as never, error: null };
     } catch (err) {
       const e = err as { message?: string; code?: string };

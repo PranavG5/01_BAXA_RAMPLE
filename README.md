@@ -2,7 +2,7 @@
 
 The MVP video pipeline from **PRD: Rample.ai Video Marketing Pipeline (v2)**. A salon or barbershop owner types one line ("$25 Tuesday Fade special"), reviews a storyboard built from photos of their own shop, approves it, and gets a QA-checked 9:16 video for Instagram Reels and TikTok.
 
-Next.js 16, a local embedded Postgres (PGlite) with local file storage, Claude for every reasoning step, Higgsfield and Pika for image-to-video, Shotstack for assembly, ElevenLabs for voiceover.
+Next.js 16, Postgres (hosted, or embedded PGlite locally) with Vercel Blob or local file storage, Claude for every reasoning step, Higgsfield and Pika for image-to-video, Shotstack for assembly, ElevenLabs for voiceover.
 
 ```
 Photo library ─► Improve prompt ─► Draft storyboard ─► Route models ─► Owner approves? ──no──► revise (new version)
@@ -39,11 +39,16 @@ Automatic Mode (FR-31, P2) is a placeholder page in the Marketing tab, as the PR
 
 ## Setup
 
-### 1. Storage (local for now)
+### 1. Storage
 
-No database service is needed. On first use the app creates an embedded Postgres (PGlite) and a file store in `DATA_DIR` (default `./.data`) and runs `db/migrations/*.sql` automatically. The same SQL runs on any Postgres 13+ when you move to a hosted database later.
+**On Vercel**, connect two stores under **Project > Storage**, then redeploy:
 
-On Vercel only `/tmp` is writable, so data there is temporary: it lives on one server instance and is wiped when that instance shuts down. Fine for a quick look; use your own machine for real testing until a hosted database is added.
+- A **Postgres database** (Neon, Supabase or any Postgres 13+). Vercel sets `DATABASE_URL` or `POSTGRES_URL`.
+- A **Blob store** for photos and videos. Vercel sets `BLOB_READ_WRITE_TOKEN`. Files are stored privately and served through short-lived signed `/api/files` links.
+
+The app runs `db/migrations/*.sql` on first use. Without these stores, Vercel only offers `/tmp`, which belongs to a single server instance: an upload lands on one instance and the next page is often served by another, so photos seem to disappear. The app shows a red banner when this is the case.
+
+**On your own machine** nothing is needed: the app creates an embedded Postgres (PGlite) and a file store in `DATA_DIR` (default `./.data`). Set `DATABASE_URL` and `BLOB_READ_WRITE_TOKEN` locally to use the hosted stores instead.
 
 ### 2. Vercel
 
@@ -110,7 +115,7 @@ These are the defaults this build uses. Each is a small change if the team decid
 | Provider connection: MCP or direct API? | Direct REST APIs from the server, behind one adapter interface. Claude only gets read-only registry data. |
 | Start-image support | Only `start_image_support = true` models are routable. Every start image is the owner's photo cropped to 1080x1920. |
 | Voiceover and music | ElevenLabs per scene; music from licensed URLs you configure (`MUSIC_URL` or `MUSIC_TRACKS`). |
-| Storage | Local embedded Postgres and files for now; the schema is plain Postgres so it can move to a hosted database later. |
+| Storage | Hosted Postgres plus private Vercel Blob in production; embedded Postgres and local files for local development. |
 | Cost ownership / target cost | Per-video credit cap (default 300 credits = $3), editable per business and per project. |
 | Failed renders | Credits for failed jobs count against the cap; failures retry up to 3 attempts, the last on the fallback model, then go to human review. |
 | Model visibility | Owners see "AI-animated" / "Photo motion" badges; the model name and router reason are behind a "why" link. |

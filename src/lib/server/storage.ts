@@ -2,11 +2,31 @@ import "server-only";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { del, get, put } from "@vercel/blob";
 import { env } from "./env";
-import { dataDir, serverSecret } from "./paths";
+import { blobConfigured, dataDir, serverSecret } from "./paths";
 
-/** Local file storage under DATA_DIR/files, served through signed /api/files links. */
+/**
+ * File storage, served through signed /api/files links. Uses a private Vercel
+ * Blob store when one is connected (needed on Vercel, where each server
+ * instance has its own /tmp), otherwise local files under DATA_DIR/files.
+ */
 export type Bucket = "assets" | "media";
+
+function blobPath(bucket: Bucket, key: string): string {
+  localPath(bucket, key); // same path validation as local storage
+  return `${bucket}/${key}`;
+}
+
+export function usesBlob(): boolean {
+  return blobConfigured();
+}
+
+/** Streams a file from the Blob store, forwarding a Range header. Null when missing. */
+export async function getBlobResponse(bucket: Bucket, key: string, range: string | null) {
+  const res = await get(blobPath(bucket, key), { access: "private", headers: range ? { range } : undefined });
+  return res && res.statusCode !== 304 ? res : null;
+}
 
 function fileRoot() {
   return path.join(dataDir(), "files");
@@ -19,7 +39,16 @@ export function localPath(bucket: Bucket, key: string): string {
   return full;
 }
 
-export async function putObject(bucket: Bucket, key: string, body: Buffer | Uint8Array, _contentType: string) {
+export async function putObject(bucket: Bucket, key: string, body: Buffer | Uint8Array, contentType: string) {
+  if (usesBlob()) {
+    await put(blobPath(bucket, key), Buffer.from(body), {
+      access: "private",
+      contentType,
+      addRandomSuffix: false,
+      allowOverwrite: true,
+    });
+    return key;
+  }
   const full = localPath(bucket, key);
   await mkdir(path.dirname(full), { recursive: true });
   await writeFile(full, body);
@@ -27,6 +56,11 @@ export async function putObject(bucket: Bucket, key: string, body: Buffer | Uint
 }
 
 export async function getObject(bucket: Bucket, key: string): Promise<Buffer> {
+  if (usesBlob()) {
+    const res = await get(blobPath(bucket, key), { access: "private", useCache: false });
+    if (!res || res.statusCode !== 200) throw new Error(`File not found (${bucket}/${key})`);
+    return Buffer.from(await new Response(res.stream).arrayBuffer());
+  }
   try {
     return await readFile(localPath(bucket, key));
   } catch {
@@ -35,6 +69,11 @@ export async function getObject(bucket: Bucket, key: string): Promise<Buffer> {
 }
 
 export async function removeObjects(bucket: Bucket, keys: (string | null | undefined)[]) {
+  if (usesBlob()) {
+    const paths = keys.filter((k): k is string => !!k).map((k) => blobPath(bucket, k));
+    if (paths.length) await del(paths).catch((e) => console.error("[storage] delete failed", e));
+    return;
+  }
   for (const k of keys) if (k) await rm(localPath(bucket, k), { force: true }).catch(() => undefined);
 }
 

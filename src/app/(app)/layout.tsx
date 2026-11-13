@@ -1,5 +1,6 @@
 import { requirePageUser } from "@/lib/server/auth";
 import { env } from "@/lib/server/env";
+import { storageIsTemporary } from "@/lib/server/paths";
 import { NavLinks } from "@/components/NavLinks";
 
 export const dynamic = "force-dynamic";
@@ -7,6 +8,7 @@ export const dynamic = "force-dynamic";
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const { user, business, staff } = await requirePageUser();
   const mock = env.mediaMode() === "mock";
+  const temporary = storageIsTemporary();
   return (
     <div className="min-h-screen">
       <header className="sticky top-0 z-30 border-b border-line bg-white/90 backdrop-blur">
@@ -26,6 +28,11 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           </div>
         </div>
       </header>
+      {temporary && (
+        <div className="border-b border-bad/25 bg-bad/10 px-4 py-2 text-center text-xs font-medium text-bad">
+          Storage is not set up: photos and videos are kept on one temporary server and will disappear. Connect a Postgres database and a Blob store in Vercel (Storage tab), then redeploy.
+        </div>
+      )}
       {mock && (
         <div className="border-b border-warn/25 bg-warn/10 px-4 py-2 text-center text-xs font-medium text-[#7a4a00]">
           Mock media mode: video models, voiceover and assembly are simulated locally. No provider credits are spent.
