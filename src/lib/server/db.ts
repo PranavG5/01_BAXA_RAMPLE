@@ -3,6 +3,7 @@ import { mkdirSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { PGlite } from "@electric-sql/pglite";
 import pg from "pg";
+import { normalizeDatabaseUrl } from "../core/db-url";
 import { databaseUrl, dataDir } from "./paths";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -73,24 +74,6 @@ async function openPglite(): Promise<Driver> {
         }
       }),
   };
-}
-
-/**
- * Gives sslmode its usual libpq meaning. node-postgres otherwise treats
- * sslmode=require as full certificate checking, which fails on hosts with
- * their own CA such as Supabase. Supabase URLs without sslmode get require.
- */
-export function normalizeDatabaseUrl(url: string): string {
-  let u: URL;
-  try {
-    u = new URL(url);
-  } catch {
-    return url;
-  }
-  const q = u.searchParams;
-  if (!q.has("sslmode") && /(^|\.)supabase\.(co|com)$/.test(u.hostname)) q.set("sslmode", "require");
-  if (q.has("sslmode") && !q.has("uselibpqcompat")) q.set("uselibpqcompat", "true");
-  return u.toString();
 }
 
 function openPostgres(url: string): Driver {
