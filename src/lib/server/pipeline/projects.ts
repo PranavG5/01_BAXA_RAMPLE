@@ -2,7 +2,7 @@ import "server-only";
 import { BriefSchema, type Brief, type SceneDraft } from "../../core/schemas";
 import { unsupportedClaims } from "../../core/facts";
 import { libraryReadiness } from "../../core/library";
-import { hardCandidates, type RegistryModel } from "../../core/routing-rules";
+import { byQuality, hardCandidates, type RegistryModel } from "../../core/routing-rules";
 import { estimateSceneCredits, normalizeScenes, renderKey, totalRuntime, validateStoryboard } from "../../core/storyboard-rules";
 import { canTransition, type VersionState } from "../../core/pipeline-rules";
 import type { Asset, BusinessProfile, Project, Scene, StoryboardVersion } from "../../types";
@@ -286,7 +286,7 @@ async function routeVersion(version: StoryboardVersion, parent: StoryboardVersio
     }
     const pinned = pins.get(s.shot_type);
     if (pinned && candidateIds.has(pinned)) {
-      const fb = candidates.filter((c) => c.model_id !== pinned).sort((a, b) => a.cost_credits_per_second - b.cost_credits_per_second);
+      const fb = candidates.filter((c) => c.model_id !== pinned).sort(byQuality);
       decisions.push({
         scene: s,
         model_id: pinned,

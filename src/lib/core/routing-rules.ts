@@ -83,16 +83,32 @@ export function validatePick(
   return { ok: errors.length === 0, errors };
 }
 
-/** Clean fallbacks: valid, unique, not the primary; add the cheapest other candidate if empty. */
+/** Output height in pixels from a label like "1080p", "768P", "2k" or "4k" (0 if unknown). */
+export function resolutionRank(label: string): number {
+  const v = label.trim().toLowerCase();
+  if (v === "4k") return 2160;
+  if (v === "2k") return 1440;
+  const n = parseInt(v, 10);
+  return Number.isFinite(n) ? n : 0;
+}
+
+/**
+ * Best-quality-first order when there is no better signal: evaluated "usable"
+ * over "with caveats", then higher resolution, then the premium (pricier) tier.
+ */
+export function byQuality(a: RegistryModel, b: RegistryModel): number {
+  const status = (m: RegistryModel) => (m.status === "usable" ? 1 : 0);
+  return status(b) - status(a) || resolutionRank(b.resolution) - resolutionRank(a.resolution) || b.cost_credits_per_second - a.cost_credits_per_second;
+}
+
+/** Clean fallbacks: valid, unique, not the primary; add the best-quality other candidate if empty. */
 export function sanitizeFallbacks(primary: string, fallback: string[], candidates: RegistryModel[]): string[] {
   const ids = new Set(candidates.map((c) => c.model_id));
   const out: string[] = [];
   for (const f of fallback) if (ids.has(f) && f !== primary && !out.includes(f)) out.push(f);
   if (out.length === 0) {
-    const cheapest = [...candidates]
-      .filter((c) => c.model_id !== primary)
-      .sort((a, b) => a.cost_credits_per_second - b.cost_credits_per_second)[0];
-    if (cheapest) out.push(cheapest.model_id);
+    const best = [...candidates].filter((c) => c.model_id !== primary).sort(byQuality)[0];
+    if (best) out.push(best.model_id);
   }
   return out.slice(0, 2);
 }

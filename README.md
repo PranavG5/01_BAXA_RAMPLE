@@ -123,7 +123,7 @@ These are the defaults this build uses. Each is a small change if the team decid
 | Start-image support | Only `start_image_support = true` models are routable. Every start image is the owner's photo cropped to 1080x1920. |
 | Voiceover and music | ElevenLabs per scene; music from licensed URLs you configure (`MUSIC_URL` or `MUSIC_TRACKS`). |
 | Storage | Supabase Postgres and private Supabase Storage in production; embedded Postgres and local files for local development. |
-| Cost ownership / target cost | Per-video credit cap (default 300 credits = $3), editable per business and per project. |
+| Cost ownership / target cost | Quality first: the router ignores cost and prefers flagship, 1080p models. A per-video credit cap (default 5000 credits = $50) remains as a safety net, editable per business and per project. |
 | Failed renders | Credits for failed jobs count against the cap; failures retry up to 3 attempts, the last on the fallback model, then go to human review. |
 | Model visibility | Owners see "AI-animated" / "Photo motion" badges; the model name and router reason are behind a "why" link. |
 | Disclosure | Guidance panel on the dashboard pointing to Instagram's AI label and TikTok's AI-generated content setting. |

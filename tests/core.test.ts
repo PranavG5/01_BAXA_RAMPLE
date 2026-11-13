@@ -9,7 +9,7 @@ import {
   validateStoryboard,
   type LibraryAssetLite,
 } from "../src/lib/core/storyboard-rules.ts";
-import { hardCandidates, isStale, sanitizeFallbacks, validatePick, type RegistryModel } from "../src/lib/core/routing-rules.ts";
+import { byQuality, hardCandidates, isStale, resolutionRank, sanitizeFallbacks, validatePick, type RegistryModel } from "../src/lib/core/routing-rules.ts";
 import { canTransition, grayscaleSimilarity, judgeClip, judgeFinal, nextAttempt } from "../src/lib/core/pipeline-rules.ts";
 import { unsupportedClaims } from "../src/lib/core/facts.ts";
 import { libraryReadiness } from "../src/lib/core/library.ts";
@@ -148,6 +148,18 @@ test("pick validation and fallback sanitizing", () => {
   assert.ok(!validatePick({ model_id: null, fallback: [] }, cands).ok);
   assert.ok(validatePick({ model_id: null, fallback: [] }, []).ok);
   assert.deepEqual(sanitizeFallbacks("a", ["a", "x"], cands), ["b"]);
+});
+
+test("fallbacks default to the best quality, not the cheapest", () => {
+  assert.deepEqual(["720p", "4k", "768P", "1080p", "2k", "?"].map(resolutionRank), [720, 2160, 768, 1080, 1440, 0]);
+  const cands = [
+    model({ model_id: "primary" }),
+    model({ model_id: "cheap720", resolution: "720p", cost_credits_per_second: 1 }),
+    model({ model_id: "hd", resolution: "1080p", cost_credits_per_second: 3 }),
+    model({ model_id: "hdPremium", resolution: "1080p", cost_credits_per_second: 20 }),
+  ];
+  assert.deepEqual(sanitizeFallbacks("primary", [], cands), ["hdPremium"]);
+  assert.deepEqual([...cands].sort(byQuality).map((m) => m.model_id), ["hdPremium", "hd", "primary", "cheap720"]);
 });
 
 test("stale registry entries are flagged", () => {

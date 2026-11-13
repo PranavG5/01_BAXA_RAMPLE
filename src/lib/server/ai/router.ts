@@ -12,12 +12,14 @@ import { asData, structured } from "./claude";
  */
 const SYSTEM = `You route each animated scene of a short salon or barbershop ad to the image-to-video model that fits it best.
 
+Visual quality is the goal. Cost and speed do not matter: never choose a model because it is cheaper or faster.
+
 Decision order:
 1. Hard constraints are already applied: each scene lists only candidate models that support its duration, 9:16 output and a start image. Pick only from that scene's candidates.
 2. Fit: match the scene (shot type, subject, the photo's motion tags, whether a face is visible) against each model's best_for and avoid_for tags, then its pros and cons text. A model whose avoid_for matches the scene is a poor fit.
-3. Cost is only the tie-breaker between equally good fits.
+3. Quality: among models that fit, pick the one most likely to give the most realistic, artifact-free result that stays faithful to the photo: hands and tools that keep their shape, natural hair and skin, steady architecture, smooth motion. Prefer the newest flagship generation and its top tier (Pro, Prime, 4.0 over 3.0) over lighter tiers (Turbo, Fast, Lite, Mini, Standard), and higher output resolution (1080p over 768p or 720p).
 
-For each scene return: model_id, a one-sentence reason, a ranked fallback list (1 to 2 other candidates), a confidence (high, medium, low), and model_prompt: the scene's motion prompt rewritten for the chosen model using its prompt_guidelines. model_prompt must keep the background exactly as in the photo and must never ask for text, prices, logos or new people.
+For each scene return: model_id, a one-sentence reason, a ranked fallback list (1 to 2 other candidates, also ranked by quality), a confidence (high, medium, low), and model_prompt: the scene's motion prompt rewritten for the chosen model using its prompt_guidelines. model_prompt must keep the background exactly as in the photo and must never ask for text, prices, logos or new people.
 
 If no candidate fits, set model_id to null and confidence to low. Do not guess: low confidence is sent to Rample ops for review.`;
 
@@ -52,8 +54,8 @@ function modelCard(m: RegistryModel, sceneSeconds: number): string {
     avoid_for: m.avoid_for,
     pros: m.pros,
     cons: m.cons,
-    est_credits_for_scene: Math.round((billedDuration(m, sceneSeconds) ?? 0) * m.cost_credits_per_second * 100) / 100,
-    typical_latency_s: m.latency_s,
+    output_resolution: m.resolution,
+    billed_seconds_for_scene: billedDuration(m, sceneSeconds),
     prompt_guidelines: m.prompt_guidelines,
   });
 }

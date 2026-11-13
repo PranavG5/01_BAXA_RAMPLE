@@ -76,5 +76,5 @@ export const env = {
   appUrl: () => (read("APP_URL") ?? (read("VERCEL_PROJECT_PRODUCTION_URL") ? `https://${read("VERCEL_PROJECT_PRODUCTION_URL")}` : undefined))?.replace(/\/$/, ""),
   cronSecret: () => read("CRON_SECRET"),
   musicTracks: parseMusic,
-  defaultCreditCap: () => Number(read("DEFAULT_CREDIT_CAP") ?? 300),
+  defaultCreditCap: () => Number(read("DEFAULT_CREDIT_CAP") ?? 5000),
 };

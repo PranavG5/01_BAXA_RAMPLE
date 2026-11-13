@@ -57,14 +57,14 @@ test("schema maps onto a silent 9:16 request with the start image and duration l
   });
   assert.deepEqual(d.warnings, []);
   assert.equal(d.model.status, "usable_with_caveats");
-  assert.equal(d.model.cost_credits_per_second, 2);
+  assert.equal(d.model.cost_credits_per_second, 3.5);
   assert.deepEqual([d.model.min_duration_s, d.model.max_duration_s, d.model.allowed_durations], [3, 15, null]);
   assert.deepEqual(d.model.aspect_ratios, ["9:16"]);
   assert.deepEqual(d.model.request_config, {
     image_field: "image",
     prompt_field: "prompt",
     duration_field: "duration",
-    static: { aspect_ratio: "9:16", resolution: "768p", rewrite: false, generate_audio: false },
+    static: { aspect_ratio: "9:16", resolution: "1080p", rewrite: false, generate_audio: false },
   });
 });
 

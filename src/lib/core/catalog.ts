@@ -254,11 +254,12 @@ export function draftFromSchema(input: {
     }
   }
 
-  let resolution = "720p";
+  let resolution = "1080p";
   if (p.resolution) {
     handled.add("resolution");
     const values = (enumOf(p.resolution) ?? []).map(String);
-    const preferred = values.find((v) => v.toLowerCase() === "720p") ?? values.find((v) => v.toLowerCase() === "768p");
+    // 1080p matches the 1080x1920 final video; fall back to the sharpest lower option.
+    const preferred = ["1080p", "768p", "720p", "540p", "480p"].map((r) => values.find((v) => v.toLowerCase() === r)).find(Boolean);
     const chosen = preferred ?? (p.resolution.default != null ? String(p.resolution.default) : values[0]);
     if (chosen) {
       staticFields.resolution = chosen;

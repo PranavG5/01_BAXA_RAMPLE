@@ -1,5 +1,5 @@
 import "server-only";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { grayscaleSimilarity, judgeClip, judgeFinal, nextAttempt, canTransition, type VersionState } from "../../core/pipeline-rules";
@@ -26,6 +26,9 @@ import { loadRegistry } from "./registry";
 const PROMPT_SUFFIX = "The background, mirrors, furniture and signage stay exactly as in the photo. No text, no logos, no new people.";
 const NEGATIVE_PROMPT = "text, letters, numbers, logo, watermark, extra people, distorted hands, warped face, melting objects, changed background";
 const POLL_INTERVAL_MS = 8_000;
+/** Photo links given to video providers last 24 h; a job reuses its link for 20 h. */
+const IMAGE_URL_TTL_S = 24 * 3600;
+const IMAGE_URL_REUSE_MS = 20 * 3600_000;
 const JOB_TIMEOUT_MS = 45 * 60_000;
 const MAX_TRANSIENT_ERRORS = 3;
 const MAX_ASSEMBLY_ATTEMPTS = 2;
@@ -179,27 +182,49 @@ async function submitJob(job: RenderJob, scene: Scene, models: Map<string, Regis
     await handleJobFailure({ ...job, status: "failed" }, scene, "provider");
     return;
   }
-  const imageUrl = await signedUrl("assets", asset.vertical_path, 6 * 3600, undefined, env.mediaMode() !== "mock");
+  // A retry must resend the identical body under the same idempotency key, so
+  // the photo link is signed once per job and reused while it is fresh.
+  // Signing again would change the body, which providers reject (409).
+  let input = { ...(job.input ?? {}) } as Record<string, unknown>;
+  const signedAt = Number(input.image_url_signed_at ?? 0);
+  if (typeof input.image_url !== "string" || Date.now() - signedAt > IMAGE_URL_REUSE_MS) {
+    input = {
+      ...input,
+      image_url: await signedUrl("assets", asset.vertical_path, IMAGE_URL_TTL_S, undefined, env.mediaMode() !== "mock"),
+      image_url_signed_at: Date.now(),
+    };
+    await updateJob(job.id, { input });
+  }
+  const imageUrl = String(input.image_url);
   const basePrompt = job.model_id === scene.model_id && scene.model_prompt ? scene.model_prompt : scene.motion_prompt;
   const appUrl = env.appUrl();
   const webhookUrl = appUrl?.startsWith("https://") ? `${appUrl}/api/webhooks/${model.provider}` : null;
   const adapter = adapterFor(job.provider);
+  const submitInput = { imageUrl, prompt: withSuffix(basePrompt), negativePrompt: NEGATIVE_PROMPT, durationSeconds: scene.duration_s };
+  // The key also covers the request itself: an identical retry dedupes at the
+  // provider, while a changed request (e.g. a re-signed link) gets its own key.
+  const keyFor = (salt = "") =>
+    `rample-${createHash("sha256").update(JSON.stringify({ job: job.idempotency_key, ...submitInput, model: model.model_id, webhookUrl, salt })).digest("hex").slice(0, 48)}`;
   try {
-    const { requestId, body } = await adapter.submit(
-      model,
-      { imageUrl, prompt: withSuffix(basePrompt), negativePrompt: NEGATIVE_PROMPT, durationSeconds: scene.duration_s },
-      { idempotencyKey: job.idempotency_key, webhookUrl },
-    );
-    const safeBody = { ...body };
+    let submitted;
+    try {
+      submitted = await adapter.submit(model, submitInput, { idempotencyKey: keyFor(), webhookUrl });
+    } catch (err) {
+      // Last line of defence: a provider that still reports a key/body clash gets one fresh key.
+      if (!(err instanceof Error && /idempotency/i.test(err.message) && /409/.test(err.message))) throw err;
+      submitted = await adapter.submit(model, submitInput, { idempotencyKey: keyFor(String(Date.now())), webhookUrl });
+    }
+    const { requestId, body } = submitted;
+    const safeBody: Record<string, unknown> = { ...body, image_url_signed_at: input.image_url_signed_at };
     for (const k of Object.keys(safeBody)) if (typeof safeBody[k] === "string" && String(safeBody[k]).includes("token=")) safeBody[k] = "[signed url]";
     await updateJob(job.id, { status: "submitted", provider_request_id: requestId, input: safeBody, submitted_at: now(), error: null });
     await audit(job.project_id, "render-service", "render.submitted", { job: job.id, model: job.model_id, attempt: job.attempt, request: requestId });
   } catch (err) {
     const retryable = err instanceof ProviderError && err.retryable;
-    const transient = Number((job.input as { transient_errors?: number }).transient_errors ?? 0) + 1;
+    const transient = Number((input as { transient_errors?: number }).transient_errors ?? 0) + 1;
     const message = err instanceof Error ? err.message : String(err);
     if (retryable && transient < MAX_TRANSIENT_ERRORS) {
-      await updateJob(job.id, { status: "queued", error: message, input: { ...job.input, transient_errors: transient } });
+      await updateJob(job.id, { status: "queued", error: message, input: { ...input, transient_errors: transient } });
       return;
     }
     await updateJob(job.id, { status: "failed", failure_kind: "provider", error: message.slice(0, 1000), credits_used: 0 });
