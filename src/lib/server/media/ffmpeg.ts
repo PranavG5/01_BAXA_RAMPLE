@@ -161,3 +161,136 @@ export async function mockAssemble(
     return readFile(out);
   });
 }
+
+// ---------------- Built-in assembly (used when SHOTSTACK_API_KEY is not set) ----------------
+
+export interface LocalScene {
+  kind: "video" | "image";
+  data: Buffer;
+  seconds: number;
+  /** Darken the still for the end card. */
+  endCard: boolean;
+}
+
+export interface LocalAssembly {
+  scenes: LocalScene[];
+  /** ASS script with every on-screen word (core/ass.ts). */
+  ass: string;
+  fontsDir: string;
+  logo: Buffer | null;
+  /** Corner logo window in seconds, and the end card window for the large logo. */
+  cornerLogo: { start: number; end: number } | null;
+  endCardLogo: { start: number; end: number; centerY: number } | null;
+  voice: { data: Buffer; start: number }[];
+  music: Buffer | null;
+}
+
+const FPS = 30;
+const SEGMENT = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", "-r", String(FPS), "-an"];
+
+/**
+ * Builds the final 1080x1920 MP4 with ffmpeg alone: each scene becomes a
+ * same-format segment (clips cropped to 9:16 and held on the last frame if
+ * short; stills get a slow push-in), the segments are joined, then text
+ * (libass), logos, voiceover and music are added in one pass.
+ */
+export async function localAssemble(input: LocalAssembly): Promise<Buffer> {
+  return withTempDir(async (dir) => {
+    const parts: string[] = [];
+    for (const [i, s] of input.scenes.entries()) {
+      const part = path.join(dir, `part_${i}.mp4`);
+      const seconds = Math.max(0.5, s.seconds);
+      if (s.kind === "video") {
+        const src = path.join(dir, `src_${i}.mp4`);
+        await writeFile(src, s.data);
+        await ffmpeg([
+          "-i", src,
+          "-vf", `scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,fps=${FPS},tpad=stop_mode=clone:stop_duration=${seconds.toFixed(2)},setsar=1`,
+          "-t", seconds.toFixed(2), ...SEGMENT, "-y", part,
+        ], 240_000);
+      } else {
+        const src = path.join(dir, `src_${i}.jpg`);
+        await writeFile(src, s.data);
+        const frames = Math.round(seconds * FPS);
+        const grade = s.endCard ? ",eq=brightness=-0.22:saturation=0.85" : "";
+        await ffmpeg([
+          "-i", src,
+          "-vf",
+          `scale=1296:2304:force_original_aspect_ratio=increase,crop=1296:2304,zoompan=z='min(1+0.0009*on,1.12)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=${frames}:s=1080x1920:fps=${FPS}${grade},setsar=1`,
+          "-frames:v", String(frames), ...SEGMENT, "-y", part,
+        ], 240_000);
+      }
+      parts.push(part);
+    }
+
+    const list = path.join(dir, "list.txt");
+    await writeFile(list, parts.map((p) => `file '${p}'`).join("\n"));
+    const base = path.join(dir, "base.mp4");
+    await ffmpeg(["-f", "concat", "-safe", "0", "-i", list, "-c", "copy", "-y", base], 120_000);
+    const total = input.scenes.reduce((sum, s) => sum + Math.max(0.5, s.seconds), 0);
+
+    const assFile = path.join(dir, "text.ass");
+    await writeFile(assFile, input.ass);
+
+    const args: string[] = ["-i", base];
+    let next = 1;
+    const filters: string[] = [];
+    let video = "[0:v]";
+
+    if (input.logo && (input.cornerLogo || input.endCardLogo)) {
+      const logo = path.join(dir, "logo.png");
+      await writeFile(logo, input.logo);
+      args.push("-loop", "1", "-t", total.toFixed(2), "-i", logo);
+      const li = next++;
+      filters.push(`[${li}:v]format=rgba,split=2[logoA][logoB]`);
+      if (input.endCardLogo) {
+        const e = input.endCardLogo;
+        filters.push(`[logoA]scale=410:-1[logoBig]`);
+        filters.push(`${video}[logoBig]overlay=x=(W-w)/2:y=${e.centerY}-h/2:enable='between(t,${e.start.toFixed(2)},${e.end.toFixed(2)})'[vlogo1]`);
+        video = "[vlogo1]";
+      } else filters.push(`[logoA]nullsink`);
+      if (input.cornerLogo) {
+        const c = input.cornerLogo;
+        filters.push(`[logoB]scale=170:-1,colorchannelmixer=aa=0.92[logoSmall]`);
+        filters.push(`${video}[logoSmall]overlay=x=W-w-44:y=60:enable='between(t,${c.start.toFixed(2)},${c.end.toFixed(2)})'[vlogo2]`);
+        video = "[vlogo2]";
+      } else filters.push(`[logoB]nullsink`);
+    }
+    filters.push(`${video}subtitles=filename='${assFile}':fontsdir='${input.fontsDir}'[vout]`);
+
+    const audio: string[] = [];
+    for (const [i, v] of input.voice.entries()) {
+      const f = path.join(dir, `vo_${i}.mp3`);
+      await writeFile(f, v.data);
+      args.push("-i", f);
+      const ms = Math.round(v.start * 1000);
+      filters.push(`[${next++}:a]aresample=44100,adelay=${ms}|${ms},apad[vo${i}]`);
+      audio.push(`[vo${i}]`);
+    }
+    if (input.music) {
+      const f = path.join(dir, "music.mp3");
+      await writeFile(f, input.music);
+      args.push("-stream_loop", "-1", "-i", f);
+      const fadeOut = Math.max(0, total - 1.5).toFixed(2);
+      filters.push(`[${next++}:a]aresample=44100,atrim=0:${total.toFixed(2)},volume=${input.voice.length ? 0.12 : 0.35},afade=t=in:d=1,afade=t=out:st=${fadeOut}:d=1.5[music]`);
+      audio.push("[music]");
+    }
+    if (!audio.length) {
+      args.push("-f", "lavfi", "-t", total.toFixed(2), "-i", "anullsrc=r=44100:cl=stereo");
+      filters.push(`[${next++}:a]anull[aout]`);
+    } else {
+      filters.push(`${audio.join("")}amix=inputs=${audio.length}:normalize=0:duration=longest,atrim=0:${total.toFixed(2)}[aout]`);
+    }
+
+    const out = path.join(dir, "final.mp4");
+    await ffmpeg([
+      ...args,
+      "-filter_complex", filters.join(";"),
+      "-map", "[vout]", "-map", "[aout]",
+      "-t", total.toFixed(2),
+      "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", "-r", String(FPS),
+      "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", "-y", out,
+    ], 280_000);
+    return readFile(out);
+  });
+}

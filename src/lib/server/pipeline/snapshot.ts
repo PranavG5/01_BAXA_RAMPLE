@@ -135,9 +135,6 @@ export async function projectSnapshot(business: BusinessProfile, project: Projec
 function setupIssues(): string[] {
   if (env.mediaMode() === "mock") return [];
   const issues: string[] = [];
-  if (!env.shotstackApiKey()) {
-    issues.push("Your scenes are saved, but the final video cannot be put together until SHOTSTACK_API_KEY is added in Vercel (then redeploy). Assembly starts on its own after that.");
-  }
   if (!env.elevenLabsApiKey()) {
     issues.push("No voiceover: ELEVENLABS_API_KEY is not set in Vercel, so videos are made with text and music only. Add it and redeploy to include a voiceover.");
   }

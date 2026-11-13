@@ -5,13 +5,14 @@ import path from "node:path";
 import { grayscaleSimilarity, judgeClip, judgeFinal, nextAttempt, canTransition, type VersionState } from "../../core/pipeline-rules";
 import type { RegistryModel } from "../../core/routing-rules";
 import { billedDuration, estimateSceneCredits, fnv1a, totalRuntime } from "../../core/storyboard-rules";
-import { buildTimeline } from "../../core/timeline";
+import { buildTimeline, sceneStarts } from "../../core/timeline";
+import { buildAss, END_CARD_LAYOUT } from "../../core/ass";
 import type { Asset, BusinessProfile, FinalVideo, Project, ProjectStatus, RenderJob, Scene, StoryboardVersion } from "../../types";
 import { scoreClip } from "../ai/qa";
 import { audit } from "../audit";
 import { env } from "../env";
 import { conflict } from "../http";
-import { extractFrames, mockAssemble, mockClipFromImage, probeFile, volumeStats, withTempDir, audioDuration, type Probe } from "../media/ffmpeg";
+import { extractFrames, localAssemble, mockAssemble, mockClipFromImage, probeFile, volumeStats, withTempDir, audioDuration, type Probe } from "../media/ffmpeg";
 import { grayRaster, toJpegBase64 } from "../media/image";
 import { renderStatus, submitRender } from "../media/shotstack";
 import { synthesizeVoiceover } from "../media/voice";
@@ -472,6 +473,11 @@ async function assemble(project: Project, version: StoryboardVersion, scenes: Sc
     return;
   }
 
+  if (!env.shotstackApiKey()) {
+    await assembleLocally(project, version, scenes, attempt, business, voice, assetPath);
+    return;
+  }
+
   const brand = Array.isArray(business.brand_colors) ? business.brand_colors : [];
   const edit = buildTimeline({
     scenes: scenes.map((s) => ({
@@ -513,7 +519,100 @@ async function assemble(project: Project, version: StoryboardVersion, scenes: Sc
   await audit(project.id, "assembly-service", "assembly.submitted", { version: version.version, render: renderId, attempt });
 }
 
+const LOCAL_RENDER_ID = "local";
+/** A built-in assembly still "assembling" after this long died with its server instance. */
+const LOCAL_STALE_MS = 8 * 60_000;
+
+/**
+ * Built-in assembly with ffmpeg, used when SHOTSTACK_API_KEY is not set: same
+ * scenes, text, logo, voiceover and music as the Shotstack timeline, rendered
+ * in this function. Runs inside the project lock, so it never runs twice.
+ */
+async function assembleLocally(
+  project: Project,
+  version: StoryboardVersion,
+  scenes: Scene[],
+  attempt: number,
+  business: BusinessProfile,
+  voice: Map<string, { path: string; seconds: number | null }>,
+  assetPath: Map<string, string>,
+) {
+  const final = must(
+    await db()
+      .from("final_videos")
+      .insert({ project_id: project.id, storyboard_version_id: version.id, status: "assembling", assembly_render_id: LOCAL_RENDER_ID, assembly_attempt: attempt })
+      .select("*")
+      .single(),
+    "save final",
+  ) as FinalVideo;
+  await audit(project.id, "assembly-service", "assembly.submitted", { version: version.version, render: LOCAL_RENDER_ID, attempt });
+  try {
+    const ordered = [...scenes].sort((a, b) => a.scene_order - b.scene_order);
+    const starts = sceneStarts(ordered);
+    const total = ordered.reduce((sum, s) => sum + Number(s.duration_s), 0);
+    const brand = Array.isArray(business.brand_colors) ? business.brand_colors : [];
+    const parts = [];
+    for (const s of ordered) {
+      const isClip = s.treatment === "animate" && !!s.clip_path;
+      const assetKey = assetPath.get(s.background_asset_id ?? "");
+      if (!isClip && !assetKey) throw new Error(`Scene ${s.scene_order} has no photo.`);
+      parts.push({
+        kind: (isClip ? "video" : "image") as "video" | "image",
+        data: isClip ? await getObject("media", s.clip_path!) : await getObject("assets", assetKey!),
+        seconds: Number(s.duration_s),
+        endCard: s.treatment === "end_card",
+      });
+    }
+    const endIdx = ordered.findIndex((s) => s.treatment === "end_card");
+    const logo = business.logo_path ? await getObject("assets", business.logo_path).catch(() => null) : null;
+    const cornerStart = ordered.length > 1 ? starts[1] : null;
+    const cornerEnd = endIdx >= 0 ? starts[endIdx] : total;
+    const musicUrl = pickMusic(version.music_mood);
+    const music = musicUrl ? await downloadOutput(musicUrl, {}).catch((e) => (console.error("[assembly] music download failed", e), null)) : null;
+    const voiceParts = [];
+    for (const [i, s] of ordered.entries()) {
+      const v = voice.get(s.id);
+      if (v) voiceParts.push({ data: await getObject("media", v.path), start: starts[i] });
+    }
+
+    const file = await localAssemble({
+      scenes: parts,
+      ass: buildAss({
+        scenes: ordered.map((s) => ({ order: s.scene_order, role: s.role, duration_s: Number(s.duration_s), treatment: s.treatment, onScreenText: s.on_screen_text, voiceoverText: s.voiceover })),
+        businessName: business.name,
+        bookingText: business.booking_link.replace(/^https?:\/\//, "").replace(/\/$/, ""),
+        brandPrimary: brand[0] ?? "#111111",
+        brandAccent: brand[1] ?? "#F5C518",
+        captions: true,
+        fontName: "DejaVu Sans",
+      }),
+      fontsDir: path.join(process.cwd(), "media", "fonts"),
+      logo,
+      cornerLogo: logo && cornerStart !== null && cornerEnd - cornerStart > 0.5 ? { start: cornerStart, end: cornerEnd } : null,
+      endCardLogo: logo && endIdx >= 0 ? { start: starts[endIdx], end: starts[endIdx] + Number(ordered[endIdx].duration_s), centerY: END_CARD_LAYOUT.logoY } : null,
+      voice: voiceParts,
+      music,
+    });
+    const filePath = `finals/${project.id}/${final.id}.mp4`;
+    await putObject("media", filePath, file, "video/mp4");
+    must(await db().from("final_videos").update({ status: "qa", file_path: filePath, updated_at: now() }).eq("id", final.id), "save final file");
+    await runFinalQa({ ...final, status: "qa", file_path: filePath }, project, version, scenes);
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    console.error("[assembly] built-in assembly failed", project.id, reason);
+    must(await db().from("final_videos").update({ status: "failed", error: reason.slice(0, 1000), updated_at: now() }).eq("id", final.id), "final failed");
+    await retryOrReviewFinal(final, project, version, scenes, reason);
+  }
+}
+
 async function pollAssembly(final: FinalVideo, project: Project, version: StoryboardVersion, scenes: Scene[]) {
+  if (final.assembly_render_id === LOCAL_RENDER_ID) {
+    // Built-in assembly finishes inside one run; one still marked assembling was cut off.
+    if (Date.now() - new Date(final.updated_at).getTime() < LOCAL_STALE_MS) return;
+    must(await db().from("final_videos").update({ status: "failed", error: "Assembly was interrupted", updated_at: now() }).eq("id", final.id), "final failed");
+    await retryOrReviewFinal(final, project, version, scenes, "Assembly was interrupted");
+    return;
+  }
   if (Date.now() - new Date(final.updated_at).getTime() < POLL_INTERVAL_MS) return;
   const status = await renderStatus(final.assembly_render_id!);
   if (status.status === "done" && status.url) {
