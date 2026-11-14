@@ -6,6 +6,7 @@ import { libraryReadiness } from "@/lib/core/library";
 import type { Project } from "@/lib/types";
 import { EmptyState, LinkButton, Notice, PageHeader, StatusBadge } from "@/components/ui";
 import { NewVideoForm } from "@/components/NewVideoForm";
+import { DeleteProjectButton } from "@/components/DeleteProjectButton";
 
 export default async function StudioPage() {
   const { business } = await requirePageUser();
@@ -42,13 +43,16 @@ export default async function StudioPage() {
       ) : (
         <div className="overflow-hidden rounded-2xl border border-line bg-white">
           {list.map((p) => (
-            <Link key={p.id} href={`/studio/${p.id}`} className="flex items-center gap-4 border-b border-line px-5 py-4 last:border-0 hover:bg-canvas">
-              <div className="min-w-0 flex-1">
-                <p className="truncate font-medium">{p.title || p.original_prompt}</p>
-                <p className="truncate text-xs text-muted">“{p.original_prompt}” · {new Date(p.updated_at).toLocaleString()}</p>
-              </div>
-              <StatusBadge status={p.status} />
-            </Link>
+            <div key={p.id} className="flex items-center gap-2 border-b border-line pr-3 last:border-0 hover:bg-canvas">
+              <Link href={`/studio/${p.id}`} className="flex min-w-0 flex-1 items-center gap-4 py-4 pl-5">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-medium">{p.title || p.original_prompt}</p>
+                  <p className="truncate text-xs text-muted">“{p.original_prompt}” · {new Date(p.updated_at).toLocaleString()}</p>
+                </div>
+                <StatusBadge status={p.status} />
+              </Link>
+              <DeleteProjectButton projectId={p.id} title={p.title || p.original_prompt} />
+            </div>
           ))}
         </div>
       )}

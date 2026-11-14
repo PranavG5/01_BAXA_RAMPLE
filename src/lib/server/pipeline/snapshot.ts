@@ -27,7 +27,7 @@ export interface ProjectSnapshot {
   scenes: SceneView[];
   finals: FinalView[];
   blockers: string[];
-  credits: { estimated: number; committed: number; cap: number; blockedByCap: boolean };
+  credits: { estimated: number; committed: number };
   modelNames: Record<string, string>;
 }
 
@@ -52,7 +52,6 @@ export async function projectSnapshot(business: BusinessProfile, project: Projec
   let finals: FinalView[] = [];
   let blockers: string[] = [];
   let committed = 0;
-  let blockedByCap = false;
 
   if (version) {
     const raw = await loadScenes(version.id);
@@ -112,7 +111,6 @@ export async function projectSnapshot(business: BusinessProfile, project: Projec
       if (["submitting", "submitted", "in_progress", "completed"].includes(j.status) || (j.status === "failed" && Number(j.credits_used ?? 0) > 0)) {
         committed += Number(j.credits_used ?? j.est_credits);
       }
-      if (j.status === "blocked" && j.failure_kind === "cap") blockedByCap = true;
     }
   }
 
@@ -123,7 +121,7 @@ export async function projectSnapshot(business: BusinessProfile, project: Projec
     scenes,
     finals,
     blockers,
-    credits: { estimated: Number(version?.est_credits ?? 0), committed: Math.round(committed * 100) / 100, cap: project.credit_cap, blockedByCap },
+    credits: { estimated: Number(version?.est_credits ?? 0), committed: Math.round(committed * 100) / 100 },
     modelNames,
   };
 }

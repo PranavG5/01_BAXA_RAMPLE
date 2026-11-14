@@ -18,8 +18,6 @@ export const PUT = api(async (req: Request) => {
     : undefined;
   const colors = Array.isArray(b.brand_colors) ? (b.brand_colors as unknown[]).map(String).filter((c) => HEX.test(c)).slice(0, 4) : undefined;
   const type = b.business_type === "salon" || b.business_type === "barbershop" ? b.business_type : undefined;
-  const cap = b.credit_cap_default !== undefined ? Number(b.credit_cap_default) : undefined;
-  if (cap !== undefined && (!Number.isFinite(cap) || cap < 1 || cap > 100000)) throw badRequest("Credit cap must be between 1 and 100000.");
   const booking = str("booking_link", 300);
   if (booking && !/^https?:\/\//i.test(booking) && !/^[\w.-]+\.[a-z]{2,}/i.test(booking)) throw badRequest("Booking link should be a web address.");
 
@@ -32,7 +30,6 @@ export const PUT = api(async (req: Request) => {
   if (services) patch.services = services;
   if (colors) patch.brand_colors = colors;
   if (type) patch.business_type = type;
-  if (cap !== undefined) patch.credit_cap_default = Math.round(cap);
   const profile = must(await db().from("business_profiles").update(patch).eq("id", business.id).select("*").single(), "save profile");
   return NextResponse.json({ profile });
 });

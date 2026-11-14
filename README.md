@@ -25,7 +25,7 @@ Dashboard ◄─yes─ Final QA ◄─ Assembly (Shotstack) ◄─ Scene QA ◄�
 | Versioned edits by chat or inline; only changed scenes are re-routed and re-rendered | `src/lib/server/pipeline/projects.ts` (`renderKey`) |
 | Free preview with photos and text overlays (no credits) | `src/components/workspace/PreviewPlayer.tsx` |
 | Model registry, Claude router, server-side pick validation, pins, kill switch, staleness flags | `src/lib/server/ai/router.ts`, `src/lib/core/routing-rules.ts`, `src/app/(app)/ops/registry` |
-| Approval gate and credit cap, enforced **in Postgres** (trigger + `claim_render_job`) | `db/migrations/0001_init.sql` |
+| Approval gate, enforced **in Postgres** (trigger + `claim_render_job`); no credit caps | `db/migrations/0001_init.sql` |
 | Provider adapter (submit, poll/webhook, cancel, cost) for Higgsfield and Pika | `src/lib/server/providers/*` |
 | Render queue with idempotency keys, retries, fallback model, per-project lock | `src/lib/server/pipeline/render.ts` |
 | Scene QA: sampled frames scored by Claude + pixel fidelity vs. source photo; final QA: duration, 1080x1920, audio level | `src/lib/server/ai/qa.ts`, `src/lib/core/pipeline-rules.ts` |
@@ -92,11 +92,11 @@ npm test
 
 Unit tests for the storyboard rules, router constraints, retry policy, QA verdicts, fact guard, library minimum and the Shotstack timeline.
 
-`npm test` also runs `tests/db_gates.mjs`: database tests for the approval gate, the credit cap, frozen approved versions and the project lock, on a throwaway embedded Postgres.
+`npm test` also runs `tests/db_gates.mjs`: database tests for the approval gate, single-use job claims (with no credit cap), frozen approved versions, the project lock, and deleting photos and projects, on a throwaway embedded Postgres.
 
 ## How the hard gates work
 
-- **No credits before approval.** `render_jobs` has a `BEFORE INSERT` trigger that rejects any job whose storyboard version is not approved. Before a job is sent to a provider, `claim_render_job()` re-checks approval and the per-project credit cap inside a row lock, so concurrent workers cannot overspend. Claude never receives a tool or key that can submit renders: it sees registry data as plain text during routing.
+- **No credits before approval.** `render_jobs` has a `BEFORE INSERT` trigger that rejects any job whose storyboard version is not approved. Before a job is sent to a provider, `claim_render_job()` re-checks approval inside a row lock and claims each job once, so concurrent workers never submit the same job twice. There is no spending cap. Claude never receives a tool or key that can submit renders: it sees registry data as plain text during routing.
 - **Approved versions are frozen.** A trigger blocks edits to scenes in an approved version; every change creates a new version.
 - **Nothing glitchy reaches the dashboard.** The dashboard query only returns `final_videos.status = 'passed'`, which is set by final QA or a human reviewer.
 
@@ -123,8 +123,8 @@ These are the defaults this build uses. Each is a small change if the team decid
 | Start-image support | Only `start_image_support = true` models are routable. Every start image is the owner's photo cropped to 1080x1920. |
 | Voiceover and music | ElevenLabs per scene; music from licensed URLs you configure (`MUSIC_URL` or `MUSIC_TRACKS`). |
 | Storage | Supabase Postgres and private Supabase Storage in production; embedded Postgres and local files for local development. |
-| Cost ownership / target cost | Quality first: the router ignores cost and prefers flagship, 1080p models. A per-video credit cap (default 5000 credits = $50) remains as a safety net, editable per business and per project. |
-| Failed renders | Credits for failed jobs count against the cap; failures retry up to 3 attempts, the last on the fallback model, then go to human review. |
+| Cost ownership / target cost | Quality first: the router ignores cost and prefers flagship, 1080p models. There are no credit caps; spend per video is shown on the Render panel. |
+| Failed renders | Failures retry up to 3 attempts, the last on the fallback model, then go to human review. |
 | Model visibility | Owners see "AI-animated" / "Photo motion" badges; the model name and router reason are behind a "why" link. |
 | Disclosure | Guidance panel on the dashboard pointing to Instagram's AI label and TikTok's AI-generated content setting. |
 | Automatic Mode | Placeholder page only (P2). |

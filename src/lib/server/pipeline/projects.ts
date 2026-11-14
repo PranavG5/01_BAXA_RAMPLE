@@ -496,15 +496,4 @@ export async function approveVersion(business: BusinessProfile, project: Project
   return updated;
 }
 
-export async function setCreditCap(project: Project, cap: number, actor: string) {
-  if (!Number.isFinite(cap) || cap < 1 || cap > 100000) throw badRequest("Enter a credit cap between 1 and 100000.");
-  must(await db().from("projects").update({ credit_cap: Math.round(cap) }).eq("id", project.id), "update cap");
-  // Jobs blocked by the old cap get another chance.
-  must(
-    await db().from("render_jobs").update({ status: "queued", failure_kind: null, error: null }).eq("project_id", project.id).eq("status", "blocked").eq("failure_kind", "cap"),
-    "unblock jobs",
-  );
-  await audit(project.id, actor, "project.credit_cap", { cap });
-}
-
 export { sceneToDraft };

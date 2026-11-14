@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { call } from "@/lib/client";
 import { StatusBadge, cx } from "../ui";
+import { DeleteProjectButton } from "../DeleteProjectButton";
 import { BriefPanel } from "./BriefPanel";
 import { RenderPanel } from "./RenderPanel";
 import { StoryboardPanel } from "./StoryboardPanel";
@@ -63,8 +64,9 @@ export function ProjectWorkspace({ initial, library, brand }: { initial: Project
           <h1 className="mt-1 truncate text-2xl font-bold tracking-tight">{snap.project.title || snap.project.original_prompt}</h1>
           <p className="mt-1 text-sm text-muted">“{snap.project.original_prompt}”</p>
         </div>
-        <div className="shrink-0 self-start">
+        <div className="flex shrink-0 items-center gap-2 self-start">
           <StatusBadge status={snap.project.status} />
+          <DeleteProjectButton projectId={snap.project.id} title={snap.project.title || snap.project.original_prompt} redirectTo="/studio" />
         </div>
       </div>
 

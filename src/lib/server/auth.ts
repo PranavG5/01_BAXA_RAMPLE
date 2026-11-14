@@ -3,7 +3,6 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { db, must } from "./db";
-import { env } from "./env";
 import { serverSecret } from "./paths";
 import { HttpError } from "./http";
 import type { BusinessProfile } from "../types";
@@ -72,7 +71,7 @@ export async function businessFor(userId: string): Promise<BusinessProfile> {
   const created = must(
     await db()
       .from("business_profiles")
-      .upsert({ owner_id: userId, credit_cap_default: env.defaultCreditCap() }, { onConflict: "owner_id" })
+      .upsert({ owner_id: userId, updated_at: new Date().toISOString() }, { onConflict: "owner_id" })
       .select("*")
       .single(),
     "create business profile",

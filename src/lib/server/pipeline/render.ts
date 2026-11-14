@@ -170,7 +170,7 @@ export async function startRendering(project: Project, versionId: string, actor:
 async function submitJob(job: RenderJob, scene: Scene, models: Map<string, RegistryModel>) {
   const claim = must(await db().rpc("claim_render_job", { p_job_id: job.id }), "claim job") as { ok: boolean; reason?: string };
   if (!claim.ok) {
-    if (claim.reason === "credit_cap" || claim.reason === "not_approved") {
+    if (claim.reason === "not_approved") {
       await audit(job.project_id, "render-service", `render.blocked.${claim.reason}`, { job: job.id, ...claim });
     }
     return;
@@ -788,7 +788,7 @@ export async function advanceProject(projectId: string, budgetMs = 240_000): Pro
     const stuckBefore = new Date(Date.now() - 3 * 60_000).toISOString();
     await db().from("render_jobs").update({ status: "queued", updated_at: now() }).eq("storyboard_version_id", version.id).eq("status", "submitting").lt("updated_at", stuckBefore);
 
-    // 1. Submit queued jobs through the gate and credit cap.
+    // 1. Submit queued jobs through the approval gate.
     for (const job of (await loadJobs()).filter((j) => j.status === "queued")) {
       if (timeLeft() < 30_000) break;
       const scene = sceneById().get(job.scene_id);

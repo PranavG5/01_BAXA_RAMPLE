@@ -121,15 +121,6 @@ export function ProfileForm({ profile, logoUrl }: { profile: BusinessProfile; lo
           </div>
         </Card>
 
-        <Card>
-          <h2 className="font-semibold">Spending</h2>
-          <label className="mt-3 block text-sm font-medium">
-            Credit cap per video (1 credit = $0.01)
-            <input type="number" min={1} className={input} value={p.credit_cap_default} onChange={(e) => setP({ ...p, credit_cap_default: Number(e.target.value) })} />
-          </label>
-          <p className="mt-2 text-xs text-muted">Rendering stops if a video would spend more than this, including retries.</p>
-        </Card>
-
         <div className="flex items-center gap-3">
           <button disabled={busy} onClick={save} className={cx(btn.base, btn.primary)}>{busy ? "Saving…" : "Save profile"}</button>
           {saved && <span className={cx("text-sm", saved === "Saved" ? "text-good" : "text-bad")}>{saved}</span>}

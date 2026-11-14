@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { USD_PER_CREDIT, labelFor } from "@/lib/core/vocabulary";
 import { call } from "@/lib/client";
-import { Badge, Card, Notice, btn, cx } from "../ui";
+import { Badge, Card, btn, cx } from "../ui";
 import { DisclosureGuide } from "../DisclosureGuide";
 import { TREATMENT_LABEL, type ProjectSnapshot, type SceneView } from "./types";
 
@@ -23,12 +23,12 @@ export function RenderPanel({ snap, onChange }: { snap: ProjectSnapshot; onChang
   const version = snap.version!;
   const final = snap.finals[0];
   const delivered = snap.finals.find((f) => f.status === "passed");
-  const [cap, setCap] = useState(String(Math.max(snap.credits.cap * 2, Math.ceil(snap.credits.committed + snap.credits.estimated))));
-  const [busy, setBusy] = useState(false);
 
   const stage =
     version.state === "complete"
-      ? "Your video is ready."
+      ? delivered
+        ? "Your video is ready."
+        : "The finished video was deleted. Delete this project, or start a new video from Content Studio."
       : version.state === "failed"
         ? `This video could not be finished. ${version.failure_reason ?? ""}`
         : snap.project.status === "needs_review"
@@ -49,38 +49,9 @@ export function RenderPanel({ snap, onChange }: { snap: ProjectSnapshot; onChang
           <p className={cx("text-sm", version.state === "failed" ? "text-bad" : "text-muted")}>{stage}</p>
         </div>
         <div className="text-sm text-muted">
-          Spent <b className="text-ink">{snap.credits.committed}</b> of {snap.credits.cap} credits (${(snap.credits.committed * USD_PER_CREDIT).toFixed(2)})
+          Spent <b className="text-ink">{snap.credits.committed}</b> credits (${(snap.credits.committed * USD_PER_CREDIT).toFixed(2)})
         </div>
       </div>
-
-      {snap.credits.blockedByCap && (
-        <div className="mt-4">
-          <Notice>
-            <p className="font-semibold">Credit cap reached</p>
-            <p className="mt-1">A retry needs more credits than this video's cap allows. Raise the cap to continue, or leave it and a reviewer will take a look.</p>
-            <div className="mt-3 flex gap-2">
-              <input type="number" min={1} value={cap} onChange={(e) => setCap(e.target.value)} className="w-28 rounded-lg border border-line bg-white px-3 py-1.5 text-sm" />
-              <button
-                disabled={busy}
-                className={cx(btn.base, btn.primary, "py-1.5")}
-                onClick={async () => {
-                  setBusy(true);
-                  try {
-                    await call(`/api/projects/${snap.project.id}/cap`, { method: "PUT", json: { cap: Number(cap) } });
-                    onChange();
-                  } catch (e) {
-                    alert(e instanceof Error ? e.message : "Could not update");
-                  } finally {
-                    setBusy(false);
-                  }
-                }}
-              >
-                Raise cap
-              </button>
-            </div>
-          </Notice>
-        </div>
-      )}
 
       {delivered?.video_url ? (
         <div className="mt-6 grid gap-6 md:grid-cols-[300px_1fr]">
@@ -138,7 +109,6 @@ function SceneProgress({ s }: { s: SceneView }) {
         {s.treatment === "animate" && latest && (
           <p className="mt-1 text-muted">
             Attempt {latest.attempt}
-            {latest.status === "blocked" ? " · paused at credit cap" : ""}
             {s.reused_from_scene_id ? " · reused from earlier version" : ""}
           </p>
         )}

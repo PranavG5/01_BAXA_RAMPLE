@@ -22,7 +22,8 @@ do $$ begin
   end;
 end $$;
 
--- 2. After approval, jobs insert; the credit cap blocks the third 12-credit job (cap 30).
+-- 2. After approval, jobs insert and each can be claimed once. There is no credit
+--    cap: the third 12-credit job goes through even though the old cap column says 30.
 update storyboard_versions set state = 'approved', approved_at = now(), approved_by = '00000000-0000-0000-0000-000000000001' where id = '00000000-0000-0000-0000-0000000000d1';
 insert into render_jobs(id, project_id, storyboard_version_id, scene_id, provider, model_id, idempotency_key, est_credits) values
   ('00000000-0000-0000-0000-0000000000f1', '00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-0000000000d1', '00000000-0000-0000-0000-0000000000e1', 'pika', 'm', 'k1', 12),
@@ -32,8 +33,8 @@ do $$ declare r jsonb; begin
   r := claim_render_job('00000000-0000-0000-0000-0000000000f1'); if not (r->>'ok')::boolean then raise exception 'TEST FAILED: first claim %', r; end if;
   r := claim_render_job('00000000-0000-0000-0000-0000000000f1'); if (r->>'ok')::boolean then raise exception 'TEST FAILED: double claim'; end if;
   r := claim_render_job('00000000-0000-0000-0000-0000000000f2'); if not (r->>'ok')::boolean then raise exception 'TEST FAILED: second claim %', r; end if;
-  r := claim_render_job('00000000-0000-0000-0000-0000000000f3'); if (r->>'ok')::boolean or r->>'reason' <> 'credit_cap' then raise exception 'TEST FAILED: cap not enforced %', r; end if;
-  raise notice 'ok: claim is single-use and credit cap enforced';
+  r := claim_render_job('00000000-0000-0000-0000-0000000000f3'); if not (r->>'ok')::boolean then raise exception 'TEST FAILED: a credit cap still blocked a job %', r; end if;
+  raise notice 'ok: claim is single-use and no credit cap blocks rendering';
 end $$;
 
 -- 3. Approved scenes are frozen.
@@ -54,5 +55,27 @@ do $$ begin
   perform unlock_project('00000000-0000-0000-0000-0000000000c1');
   if not try_lock_project('00000000-0000-0000-0000-0000000000c1') then raise exception 'TEST FAILED: relock'; end if;
   raise notice 'ok: project lock';
+end $$;
+
+-- 5. Deleting a photo used by an approved scene works and clears it from the scene,
+--    while the scene's other content stays frozen; deleting the project removes everything.
+do $$ declare n int; begin
+  delete from assets where id = '00000000-0000-0000-0000-0000000000a1';
+  if (select background_asset_id from scenes where id = '00000000-0000-0000-0000-0000000000e1') is not null then
+    raise exception 'TEST FAILED: photo still on the scene';
+  end if;
+  begin
+    update scenes set background_asset_id = gen_random_uuid() where id = '00000000-0000-0000-0000-0000000000e1';
+    raise exception 'TEST FAILED: approved scene accepted a new photo';
+  exception when sqlstate 'P0001' then
+    if sqlerrm like 'TEST FAILED%' then raise; end if;
+  when foreign_key_violation then null; -- also blocked
+  end;
+  delete from projects where id = '00000000-0000-0000-0000-0000000000c1';
+  select count(*) into n from render_jobs where project_id = '00000000-0000-0000-0000-0000000000c1';
+  if n <> 0 or exists (select 1 from scenes where id = '00000000-0000-0000-0000-0000000000e1') then
+    raise exception 'TEST FAILED: project delete left rows behind';
+  end if;
+  raise notice 'ok: photos and projects can be deleted';
 end $$;
 rollback;

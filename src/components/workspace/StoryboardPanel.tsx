@@ -89,7 +89,7 @@ export function StoryboardPanel({
   async function approve() {
     const usd = (est * USD_PER_CREDIT).toFixed(2);
     const ok = confirm(
-      `Approve version ${version.version} and start rendering?\n\n${animated} AI-animated scene(s), about ${est} credits ($${usd}).\nCredit cap for this video: ${snap.credits.cap} credits.\n\nNothing has been spent yet. Credits are only spent after you approve.`,
+      `Approve version ${version.version} and start rendering?\n\n${animated} AI-animated scene(s), about ${est} credits ($${usd}).\n\nNothing has been spent yet. Credits are only spent after you approve.`,
     );
     if (!ok) return;
     await run("approve", () => call(`/api/projects/${snap.project.id}/approve`, { method: "POST", json: { versionId: version.id } }));
@@ -115,7 +115,6 @@ export function StoryboardPanel({
             <span><b>{runtime}s</b> <span className="text-muted">total</span></span>
             <span><b>{snap.scenes.length}</b> <span className="text-muted">scenes</span></span>
             <span><b>{est}</b> <span className="text-muted">est. credits (${(est * USD_PER_CREDIT).toFixed(2)})</span></span>
-            <span className="text-muted">cap {snap.credits.cap}</span>
           </div>
         </div>
         <div className="flex flex-wrap gap-2">

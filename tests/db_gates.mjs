@@ -8,7 +8,7 @@ const notices = [];
 const res = await pg.exec(readFileSync("tests/db_gates.sql", "utf8"), { onNotice: (n) => notices.push(n.message) });
 const ok = notices.filter((m) => m.startsWith("ok:"));
 console.log(ok.join("\n"));
-if (ok.length !== 4) {
-  console.error("Expected 4 passing checks", notices);
+if (ok.length !== 5) {
+  console.error("Expected 5 passing checks", notices);
   process.exit(1);
 }
