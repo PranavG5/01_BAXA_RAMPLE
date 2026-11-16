@@ -10,7 +10,7 @@ import { asData, structured } from "./claude";
  * Claude only sees read-only registry data here; it has no tool that can
  * submit a render or spend credits (FR-20).
  */
-const SYSTEM = `You route each animated scene of a short salon or barbershop ad to the image-to-video model that fits it best.
+const SYSTEM = `You route each animated scene of a short ad for a local small business to the image-to-video model that fits it best.
 
 Visual quality is the goal. Cost and speed do not matter: never choose a model because it is cheaper or faster.
 

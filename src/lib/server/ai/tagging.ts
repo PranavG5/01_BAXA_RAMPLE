@@ -3,7 +3,7 @@ import { TagResultSchema, type TagResult } from "../../core/schemas";
 import { MOTION_TAGS, REQUIRED_SHOTS } from "../../core/vocabulary";
 import { structured, imageBlock, textBlock } from "./claude";
 
-const SYSTEM = `You tag photos for a salon and barbershop video tool. Each photo becomes the fixed background of a short vertical ad, so your tags decide which scenes it can anchor.
+const SYSTEM = `You tag photos for a video tool for local small businesses. Each photo becomes the fixed background of a short vertical ad, so your tags decide which scenes it can anchor.
 
 Return:
 - area: which part of the business the photo shows.

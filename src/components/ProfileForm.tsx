@@ -6,6 +6,30 @@ import type { BusinessProfile, Service } from "@/lib/types";
 import { call } from "@/lib/client";
 import { btn, Card, cx } from "./ui";
 
+/** Suggestions only: owners can type any kind of business. */
+const BUSINESS_TYPE_SUGGESTIONS = [
+  "Barbershop",
+  "Hair salon",
+  "Nail salon",
+  "Spa",
+  "Tattoo studio",
+  "Restaurant",
+  "Café",
+  "Bakery",
+  "Food truck",
+  "Gym",
+  "Yoga studio",
+  "Retail shop",
+  "Boutique",
+  "Auto repair",
+  "Car wash",
+  "Cleaning service",
+  "Landscaping",
+  "Pet grooming",
+  "Dental office",
+  "Photography studio",
+];
+
 const input = "mt-1 w-full rounded-lg border border-line px-3 py-2 text-sm outline-none focus:border-brand";
 
 export function ProfileForm({ profile, logoUrl }: { profile: BusinessProfile; logoUrl: string | null }) {
@@ -55,11 +79,20 @@ export function ProfileForm({ profile, logoUrl }: { profile: BusinessProfile; lo
             <input className={input} value={p.name} onChange={set("name")} placeholder="Northside Barbers" />
           </label>
           <label className="text-sm font-medium">
-            Type
-            <select className={input} value={p.business_type} onChange={set("business_type")}>
-              <option value="barbershop">Barbershop</option>
-              <option value="salon">Salon</option>
-            </select>
+            Type of business
+            <input
+              className={input}
+              value={p.business_type}
+              onChange={set("business_type")}
+              list="business-type-suggestions"
+              maxLength={80}
+              placeholder="Barbershop, bakery, yoga studio…"
+            />
+            <datalist id="business-type-suggestions">
+              {BUSINESS_TYPE_SUGGESTIONS.map((t) => (
+                <option key={t} value={t} />
+              ))}
+            </datalist>
           </label>
           <label className="text-sm font-medium">
             Booking link

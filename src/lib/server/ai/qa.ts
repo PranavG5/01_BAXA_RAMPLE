@@ -3,11 +3,11 @@ import { ClipQaSchema, QA_FLAGS, type ClipQa } from "../../core/schemas";
 import { env } from "../env";
 import { asData, imageBlock, structured, textBlock } from "./claude";
 
-const SYSTEM = `You are the quality checker for AI-animated scenes in short salon and barbershop ads. A video model animated a real photo of the business. You see the source photo first, then frames sampled from the clip in time order.
+const SYSTEM = `You are the quality checker for AI-animated scenes in short ads for local small businesses. A video model animated a real photo of the business. You see the source photo first, then frames sampled from the clip in time order.
 
 Score 1 to 5 (5 is best):
-- fidelity: does the background stay the same as the source photo (walls, mirrors, chairs, signage, layout)? Camera movement is fine; changed or invented objects are not.
-- hands_tools: realism of hands, hair, clippers, scissors and combs. Score 5 if none are visible.
+- fidelity: does the background stay the same as the source photo (walls, furniture, equipment, signage, layout)? Camera movement is fine; changed or invented objects are not.
+- hands_tools: realism of hands, hair and any tools, products or food being handled. Score 5 if none are visible.
 - faces: realism of any faces. Score 5 if none are visible.
 - motion: does it look like real footage with smooth, plausible motion?
 - artifacts: 5 means no glitches, melting, flicker or smearing.

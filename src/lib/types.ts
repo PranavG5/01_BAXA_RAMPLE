@@ -14,7 +14,8 @@ export interface BusinessProfile {
   id: string;
   owner_id: string;
   name: string;
-  business_type: "barbershop" | "salon";
+  /** Free text the owner types, e.g. "Barbershop", "Yoga studio", "Food truck". */
+  business_type: string;
   services: Service[];
   brand_colors: string[];
   logo_path: string | null;

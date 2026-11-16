@@ -6,7 +6,7 @@ export function profileBlock(p: BusinessProfile): string {
   const services = (p.services ?? []).map((s) => `- ${s.name}: ${s.price}${s.notes ? ` (${s.notes})` : ""}`).join("\n");
   return `<business_profile>
 name: ${asData(p.name || "(not set)")}
-type: ${p.business_type}
+type: ${asData(p.business_type || "(not set)")}
 address: ${asData(p.address || "(not set)")}
 booking_link: ${asData(p.booking_link || "(not set)")}
 tone: ${asData(p.tone || "(not set)")}
